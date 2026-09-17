@@ -378,3 +378,62 @@ Paralelamente, el LED onboard (GPIO 25) parpadea a 4 Hz.
 | `can't find interface/cmsis-dap.cfg` | se omitió `-s <tcl>` | pasar `-s /home/optimus/src/rpico/openocd-src/tcl` |
 | `could not open device: Access denied` | permisos root:root del USB | regla udev (Sección 5) |
 | Trigger en BOOTSEL: no conecta | RP2040 en modo RPI-RP2 desactiva SWD | quitar USB del target/no entrar en BOOTSEL |
+---
+
+## 12. Nota sobre Raspberry Pi Pico W
+
+### Diferencia del LED onboard
+
+| Placa | LED onboard | Pin / método |
+|---|---|---|
+| Pico 1 / Pico 2 | LED PWM directo | `PICO_DEFAULT_LED_PIN = 25` (GPIO25) |
+| **Pico W / Pico 2 W** | LED del chip WiFi CYW43439 | `CYW43_WL_GPIO_LED_PIN = 0` vía SPI |
+
+En el Pico W, el **GPIO25 es el chip-select SPI del chip WiFi** (CYW43), no el LED.
+El LED se accede a través del driver CYW43 del SDK (`pico_cyw43_arch`).
+
+### Cómo se hizo portable el firmware
+
+En `blink.c` se usa `#ifdef CYW43_WL_GPIO_LED_PIN` (definido por el board header
+de `pico_w.h`) para decidir en tiempo de compilación:
+
+```c
+#ifdef CYW43_WL_GPIO_LED_PIN
+    #include "pico/cyw43_arch.h"
+    cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, on);
+#elif defined(PICO_DEFAULT_LED_PIN)
+    gpio_put(PICO_DEFAULT_LED_PIN, on);
+#endif
+```
+
+En `CMakeLists.txt`, el driver CYW43 se vincula solo para placas compatibles:
+
+```cmake
+if (PICO_CYW43_SUPPORTED)
+    target_link_libraries(blink pico_cyw43_arch_none)
+endif()
+```
+
+`pico_cyw43_arch_none` es la variante mínima: inicializa el chip (SPI) para control
+el LED sin incluir la pila de red (lwIP), manteniendo el tamaño del binario bajo.
+
+### Compilación
+
+```bash
+# Para Pico 1 (GPIO25)
+BOARD=pico   ./scripts/build.sh
+
+# Para Pico W (CYW43 LED)
+BOARD=pico_w ./scripts/build.sh
+
+# Para compilar para Pico 2 W: BOARD=pico2_w ./scripts/build.sh
+```
+
+### Atención
+
+Al cambiar de `BOARD=pico` a `BOARD=pico_w` (o viceversa), **limpiar el build/**
+antes de recompilar para evitar caché de CMake que mantenga objetos de la otra placa:
+
+```bash
+rm -rf build && BOARD=pico_w ./scripts/build.sh
+```
