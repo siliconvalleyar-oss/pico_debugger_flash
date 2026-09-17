@@ -14,11 +14,13 @@ set -euo pipefail
 # Raíz del repositorio (un nivel arriba de scripts/)
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
 
-# Directorios clave del proyecto
-BLINK_DIR="${BLINK_DIR:-${REPO_ROOT}/blink}"
-BUILD_DIR="${BUILD_DIR:-${BLINK_DIR}/build}"
-ELF_FILE="${ELF_FILE:-${BUILD_DIR}/blink.elf}"
-UF2_FILE="${UF2_FILE:-${BUILD_DIR}/blink.uf2}"
+# Directorios clave del proyecto.
+# Se elige el firmware con PROJECT: PROJECT=blink (default) u PROJECT=oled_ssd1306.
+PROJECT="${PROJECT:-blink}"
+PROJECT_DIR="${PROJECT_DIR:-${REPO_ROOT}/${PROJECT}}"
+BUILD_DIR="${BUILD_DIR:-${PROJECT_DIR}/build}"
+ELF_FILE="${ELF_FILE:-${BUILD_DIR}/${PROJECT}.elf}"
+UF2_FILE="${UF2_FILE:-${BUILD_DIR}/${PROJECT}.uf2}"
 
 # Configuraciones de OpenOCD incluidas en el repo
 CONFIG_FILE="${CONFIG_FILE:-${REPO_ROOT}/debugprobe-openocd.cfg}"

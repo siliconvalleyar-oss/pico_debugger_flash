@@ -4,10 +4,10 @@ Programación y depuración de un **Raspberry Pi Pico (RP2040)** por **SWD** usa
 segundo **Pico como Debug Probe** (protocolo CMSIS-DAP), con OpenOCD compilado desde
 fuente y **sin necesidad de sudo** (regla udev).
 
-Incluye el firmware blink de autotest, todos los scripts reproducibles y la
-documentación que explica *por qué* un firmware falló y *cómo* replicar el setup
-en otra PC — pensado para que cualquier persona **o IA** pueda interpretarlo y
-ejecutarlo.
+Incluye los firmwares de ejemplo (blink y OLED SSD1306), todos los scripts
+reproducibles y la documentación que explica *por qué* un firmware falló y *cómo*
+replicar el setup en otra PC — pensado para que cualquier persona **o IA** pueda
+interpretarlo y ejecutarlo.
 
 ## Repositorios y herramientas externas (no versionados aquí)
 
@@ -23,6 +23,7 @@ ejecutarlo.
 ```
 pico_debugger_flash/
 ├── blink/                  # Firmware de autotest (LED + USB CDC)
+├── oled_ssd1306/           # Firmware OLED SSD1306 128x64 (I2C1 GP2/GP3)
 ├── docs/                   # Toda la documentación aprendida
 │   ├── DEBUGPROBE_LEARNINGS.md   # Firmwares, por qué falló, setup sin sudo (receta para IAs)
 │   ├── PICO_DEBUGGER_GUIDE.md    # Guía de depuración derivada de la doc oficial de RPi
@@ -57,6 +58,9 @@ sudo ./scripts/install_udev.sh
 ./scripts/flash_nosudo.sh               # target = Pico 1 (LED GPIO25)
 BOARD=pico_w ./scripts/flash_nosudo.sh  # target = Pico W (LED via CYW43)
 # Salida esperada: Programming Finished / Verified OK
+
+# 3) Si se quiere el proyecto OLED SSD1306:
+PROJECT=oled_ssd1306 BOARD=pico_w ./scripts/flash_nosudo.sh
 ```
 
 Si la udev no está instalada, usar los scripts con sudo:
@@ -104,6 +108,16 @@ blink #1 ...
 - [docs/PICO_DEBUGGER_GUIDE.md](docs/PICO_DEBUGGER_GUIDE.md) — guía de depuración
   (VS Code, OpenOCD, GDB, rescue, serial).
 - [docs/REPORT.md](docs/REPORT.md) — bitácora de la sesión de trabajo.
+- [docs/SKILL.md](docs/SKILL.md) — skill consolidada para programar Pico por SWD.
+- [oled_ssd1306/README.md](oled_ssd1306/README.md) — firmware OLED SSD1306 (I2C1 GP2/GP3).
+
+## Notas OLED SSD1306
+
+El proyecto `oled_ssd1306` muestra texto en un display 128x64 por I2C1
+(**SDA=GP2, SCL=GP3**, dirección 0x3C). Detalle importante descubierto en pruebas:
+el comando de init `0xA1` (segment re-map ON) invierte el eje horizontal y hace
+que el texto se lea de derecha a izquierda; con `0xA0` el texto queda normal.
+Los dos ejes (segment remap y COM scan) se corrigen en `ssd1306.c`.
 
 ## Licencia
 

@@ -6,7 +6,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config.sh"
 
-echo "=== Blink Firmware - Build & Program via Debug Probe ==="
+echo "=== ${PROJECT} Firmware - Build & Program via Debug Probe ==="
 echo ""
 
 if [ ! -x "${OPENOCD_BIN}" ]; then

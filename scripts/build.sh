@@ -5,7 +5,7 @@ source "${SCRIPT_DIR}/config.sh"
 
 BOARD="${BOARD:-pico}"
 
-echo "Building blink firmware for board '${BOARD}' (RP2040)..."
+echo "Building ${PROJECT} firmware for board '${BOARD}' (RP2040)..."
 echo "Tip: BOARD=pico_w para Pico W; BOARD=pico (default) para Pico 1."
 echo "Build: ${BUILD_DIR}"
 echo "SDK:   ${PICO_SDK_PATH:-<no definido>}"
@@ -19,7 +19,7 @@ fi
 mkdir -p "${BUILD_DIR}"
 cd "${BUILD_DIR}"
 
-cmake -DPICO_BOARD="${BOARD}" -DPICO_SDK_PATH="${PICO_SDK_PATH}" "${BLINK_DIR}"
+cmake -DPICO_BOARD="${BOARD}" -DPICO_SDK_PATH="${PICO_SDK_PATH}" "${PROJECT_DIR}"
 make -j"$(nproc)"
 
 echo ""
