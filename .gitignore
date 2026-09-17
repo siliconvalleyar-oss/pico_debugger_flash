@@ -1,0 +1,41 @@
+# ---- Build artifacts ----
+build/
+*/build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+CTestTestfile.cmake
+compile_commands.json
+
+# ---- Compiler artifacts ----
+*.o
+*.obj
+*.a
+*.so
+*.elf
+*.map
+*.bin
+*.hex
+*.dis
+
+# UF2 producidos por build (los de firmware/ sí se versionan)
+*.uf2
+!firmware/*.uf2
+
+# ---- Herramientas del SDK que se generan al compilar ----
+*_deps/
+pioasm/
+picotool/
+
+# ---- Editor / OS ----
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# ---- Imágenes sin relación con el proyecto ----
+pics/micromac.jpg
+pics/umac_annotated.jpg
+pics/FDF5N5SMNGK3FFM.webp
