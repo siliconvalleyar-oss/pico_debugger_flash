@@ -54,7 +54,8 @@ PICO_SDK_PATH=/x/pico-sdk OPENOCD_BIN=/x/openocd ./scripts/flash_nosudo.sh
 sudo ./scripts/install_udev.sh
 
 # 2) Compilar y programar el target por SWD SIN sudo
-./scripts/flash_nosudo.sh
+./scripts/flash_nosudo.sh               # target = Pico 1 (LED GPIO25)
+BOARD=pico_w ./scripts/flash_nosudo.sh  # target = Pico W (LED via CYW43)
 # Salida esperada: Programming Finished / Verified OK
 ```
 
@@ -90,6 +91,10 @@ blink #1 ...
 | 3V3 | 3V3 | 3.3V (opcional) |
 
 > El target NO debe estar en modo BOOTSEL (USB mostrando `RPI-RP2`) al usar SWD.
+
+> **Pico W:** el LED onboard NO es GPIO25 (ese pin es el CS SPI del chip WiFi).
+> El firmware `blink` lo detecta y usa el driver CYW43 (`CYW43_WL_GPIO_LED_PIN`).
+> Compilar con `BOARD=pico_w`. Para Pico 2 W: `BOARD=pico2_w`.
 
 ## Documentos clave
 

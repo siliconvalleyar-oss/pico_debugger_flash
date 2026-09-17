@@ -6,6 +6,7 @@ source "${SCRIPT_DIR}/config.sh"
 BOARD="${BOARD:-pico}"
 
 echo "Building blink firmware for board '${BOARD}' (RP2040)..."
+echo "Tip: BOARD=pico_w para Pico W; BOARD=pico (default) para Pico 1."
 echo "Build: ${BUILD_DIR}"
 echo "SDK:   ${PICO_SDK_PATH:-<no definido>}"
 

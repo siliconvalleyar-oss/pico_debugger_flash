@@ -7,6 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config.sh"
 
 echo "=== Blink Firmware - Build & Program via Debug Probe ==="
+echo "Board: ${BOARD:-pico}   (use BOARD=pico_w para Pico W)"
 echo ""
 
 if [ ! -x "${OPENOCD_BIN}" ]; then
