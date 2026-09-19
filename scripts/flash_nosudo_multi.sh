@@ -101,8 +101,9 @@ fi
 
 PROJECT="$(basename "${PROJECT_DIR}")"
 BUILD_DIR="${PROJECT_DIR}/build"
-ELF_FILE="${BUILD_DIR}/${PROJECT}.elf"
-UF2_FILE="${BUILD_DIR}/${PROJECT}.uf2"
+# Los binarios quedan en build/src/ porque el CMake del proyecto hace add_subdirectory(src).
+ELF_FILE="${BUILD_DIR}/src/${PROJECT}.elf"
+UF2_FILE="${BUILD_DIR}/src/${PROJECT}.uf2"
 
 export PROJECT PROJECT_DIR BUILD_DIR ELF_FILE UF2_FILE BOARD
 
