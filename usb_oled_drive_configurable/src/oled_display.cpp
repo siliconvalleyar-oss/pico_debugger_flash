@@ -1,0 +1,268 @@
+/*
+ * oled_display.cpp - SSD1306 128x64 (I2C) driver + real-time status rendering
+ *
+ * SPDX-License-Identifier: MIT
+ *
+ * Two layers:
+ *   1. Low-level SSD1306 driver (I2C, commands, framebuffer, 5x7 font).
+ *   2. High-level renderer that shows the runtime state: volume label, a lock
+ *      icon when READ_ONLY is set, total/free capacity and USB connection state.
+ *
+ * The renderer reads g_cfg / g_state every call, so hot-plug changes appear
+ * without a reboot. ENABLE_OLED=off switches the panel to sleep to save power.
+ */
+
+#include <string.h>
+#include <stdio.h>
+#include "hardware/i2c.h"
+#include "hardware/gpio.h"
+#include "oled_display.h"
+#include "config.h"
+
+/* ------------------------- SSD1306 low-level ------------------------- */
+
+#define OLED_I2C        i2c0                       /* hardware I2C block */
+#define OLED_DISPLAY_ON 0xAF
+#define OLED_DISPLAY_OFF 0xAE
+
+/* framebuffer: 128 x 64 bits -> 8 pages of 128 bytes */
+static uint8_t fb[OLED_HEIGHT / 8u][OLED_WIDTH];
+
+/* 5x7 compact ASCII font (characters 0x20..0x7E). Only needed glyphs below. */
+static const uint8_t font5x7[][5] = {
+    {0x00,0x00,0x00,0x00,0x00}, // ' '
+    {0x00,0x00,0x5F,0x00,0x00}, // '!'
+    {0x00,0x07,0x00,0x07,0x00}, // '"'
+    {0x14,0x7F,0x14,0x7F,0x14}, // '#'
+    {0x24,0x2A,0x7F,0x2A,0x12}, // '$'
+    {0x23,0x13,0x08,0x64,0x62}, // '%'
+    {0x36,0x49,0x55,0x22,0x50}, // '&'
+    {0x00,0x05,0x03,0x00,0x00}, // '''
+    {0x00,0x1C,0x22,0x41,0x00}, // '('
+    {0x00,0x41,0x22,0x1C,0x00}, // ')'
+    {0x14,0x08,0x3E,0x08,0x14}, // '*'
+    {0x08,0x08,0x3E,0x08,0x08}, // '+'
+    {0x00,0x50,0x30,0x00,0x00}, // ','
+    {0x08,0x08,0x08,0x08,0x08}, // '-'
+    {0x00,0x60,0x60,0x00,0x00}, // '.'
+    {0x20,0x10,0x08,0x04,0x02}, // '/'
+    {0x3E,0x51,0x49,0x45,0x3E}, // '0'
+    {0x00,0x42,0x7F,0x40,0x00}, // '1'
+    {0x42,0x61,0x51,0x49,0x46}, // '2'
+    {0x21,0x41,0x45,0x4B,0x31}, // '3'
+    {0x18,0x14,0x12,0x7F,0x10}, // '4'
+    {0x27,0x45,0x45,0x45,0x39}, // '5'
+    {0x3C,0x4A,0x49,0x49,0x30}, // '6'
+    {0x01,0x71,0x09,0x05,0x03}, // '7'
+    {0x36,0x49,0x49,0x49,0x36}, // '8'
+    {0x06,0x49,0x49,0x29,0x1E}, // '9'
+    {0x00,0x36,0x36,0x00,0x00}, // ':'
+    {0x00,0x56,0x36,0x00,0x00}, // ';'
+    {0x00,0x08,0x14,0x22,0x41}, // '<'
+    {0x14,0x14,0x14,0x14,0x14}, // '='
+    {0x41,0x22,0x14,0x08,0x00}, // '>'
+    {0x02,0x01,0x51,0x09,0x06}, // '?'
+    {0x32,0x49,0x79,0x41,0x3E}, // '@'
+    {0x7E,0x11,0x11,0x11,0x7E}, // 'A'
+    {0x7F,0x49,0x49,0x49,0x36}, // 'B'
+    {0x3E,0x41,0x41,0x41,0x22}, // 'C'
+    {0x7F,0x41,0x41,0x22,0x1C}, // 'D'
+    {0x7F,0x49,0x49,0x49,0x41}, // 'E'
+    {0x7F,0x09,0x09,0x09,0x01}, // 'F'
+    {0x3E,0x41,0x49,0x49,0x7A}, // 'G'
+    {0x7F,0x08,0x08,0x08,0x7F}, // 'H'
+    {0x00,0x41,0x7F,0x41,0x00}, // 'I'
+    {0x20,0x40,0x41,0x3F,0x01}, // 'J'
+    {0x7F,0x08,0x14,0x22,0x41}, // 'K'
+    {0x7F,0x40,0x40,0x40,0x40}, // 'L'
+    {0x7F,0x02,0x04,0x02,0x7F}, // 'M'
+    {0x7F,0x04,0x08,0x10,0x7F}, // 'N'
+    {0x3E,0x41,0x41,0x41,0x3E}, // 'O'
+    {0x7F,0x09,0x09,0x09,0x06}, // 'P'
+    {0x3E,0x41,0x51,0x21,0x5E}, // 'Q'
+    {0x7F,0x09,0x19,0x29,0x46}, // 'R'
+    {0x46,0x49,0x49,0x49,0x31}, // 'S'
+    {0x01,0x01,0x7F,0x01,0x01}, // 'T'
+    {0x3F,0x40,0x40,0x40,0x3F}, // 'U'
+    {0x1F,0x20,0x40,0x20,0x1F}, // 'V'
+    {0x3F,0x40,0x38,0x40,0x3F}, // 'W'
+    {0x63,0x14,0x08,0x14,0x63}, // 'X'
+    {0x07,0x08,0x70,0x08,0x07}, // 'Y'
+    {0x61,0x51,0x49,0x45,0x43}, // 'Z'
+    {0x00,0x7F,0x41,0x41,0x00}, // '['
+    {0x02,0x04,0x08,0x10,0x20}, // '\'
+    {0x00,0x41,0x41,0x7F,0x00}, // ']'
+    {0x04,0x02,0x01,0x02,0x04}, // '^'
+    {0x40,0x40,0x40,0x40,0x40}, // '_'
+    {0x00,0x01,0x02,0x04,0x00}, // '`'
+    {0x20,0x54,0x54,0x54,0x78}, // 'a'
+    {0x7F,0x48,0x44,0x44,0x38}, // 'b'
+    {0x38,0x44,0x44,0x44,0x20}, // 'c'
+    {0x38,0x44,0x44,0x48,0x7F}, // 'd'
+    {0x38,0x54,0x54,0x54,0x18}, // 'e'
+    {0x08,0x7E,0x09,0x01,0x02}, // 'f'
+    {0x0C,0x52,0x52,0x52,0x3E}, // 'g'
+    {0x7F,0x08,0x04,0x04,0x78}, // 'h'
+    {0x00,0x44,0x7D,0x40,0x00}, // 'i'
+    {0x20,0x40,0x44,0x3D,0x00}, // 'j'
+    {0x00,0x7F,0x10,0x28,0x44}, // 'k'
+    {0x00,0x41,0x7F,0x40,0x00}, // 'l'
+    {0x7C,0x04,0x18,0x04,0x78}, // 'm'
+    {0x7C,0x08,0x04,0x04,0x78}, // 'n'
+    {0x38,0x44,0x44,0x44,0x38}, // 'o'
+    {0x7C,0x14,0x14,0x14,0x08}, // 'p'
+    {0x08,0x14,0x14,0x18,0x3C}, // 'q'
+    {0x7C,0x08,0x04,0x04,0x08}, // 'r'
+    {0x48,0x54,0x54,0x54,0x20}, // 's'
+    {0x04,0x3F,0x44,0x40,0x20}, // 't'
+    {0x3C,0x40,0x40,0x20,0x7C}, // 'u'
+    {0x1C,0x20,0x40,0x20,0x1C}, // 'v'
+    {0x3C,0x40,0x30,0x40,0x3C}, // 'w'
+    {0x44,0x28,0x10,0x28,0x44}, // 'x'
+    {0x0C,0x50,0x50,0x50,0x3C}, // 'y'
+    {0x44,0x64,0x54,0x4C,0x44}, // 'z'
+    {0x00,0x08,0x36,0x41,0x00}, // '{'
+    {0x00,0x00,0x7F,0x00,0x00}, // '|'
+    {0x00,0x41,0x36,0x08,0x00}, // '}'
+    {0x10,0x08,0x10,0x08,0x00}, // '~'
+};
+
+static void oled_send_cmd(uint8_t cmd) {
+    /* control byte 0x80 = command stream (same as official pico-examples
+     * SSD1306_send_cmd) */
+    uint8_t buf[2] = { 0x80, cmd };
+    i2c_write_blocking(OLED_I2C, OLED_ADDR, buf, 2, false);
+}
+
+static void oled_send_data(const uint8_t *data, uint16_t len) {
+    /* Send control byte + payload as ONE contiguous I2C transaction, exactly
+     * like the proven adc_oled SSD1306_send_buf(). Splitting the burst into
+     * many chunks risks the panel's internal column counter going out of sync
+     * (-> "snow"/noise over the whole display). */
+    static uint8_t tx[OLED_WIDTH * (OLED_HEIGHT / 8u) + 1u];
+    if (len > sizeof(tx) - 1u) len = sizeof(tx) - 1u;
+    tx[0] = 0x40;                       // control byte = data stream
+    memcpy(tx + 1, data, len);
+    i2c_write_blocking(OLED_I2C, OLED_ADDR, tx, len + 1, false);
+}
+
+/* Set column + page address range (horizontal addressing mode) and dump a
+ * linear, page-major framebuffer - the proven approach from adc_oled. */
+static void oled_set_window_addr(uint8_t start_col, uint8_t end_col,
+                                 uint8_t start_page, uint8_t end_page) {
+    oled_send_cmd(0x21); oled_send_cmd(start_col); oled_send_cmd(end_col);
+    oled_send_cmd(0x22); oled_send_cmd(start_page); oled_send_cmd(end_page);
+}
+
+static void oled_clear(void) {
+    memset(fb, 0, sizeof(fb));
+    oled_set_window_addr(0, OLED_WIDTH - 1, 0, OLED_HEIGHT / 8u - 1);
+    oled_send_data((const uint8_t *) fb, sizeof(fb));
+}
+
+static void oled_display_on(void)  { oled_send_cmd(OLED_DISPLAY_ON);  }
+static void oled_display_off(void) { oled_send_cmd(OLED_DISPLAY_OFF); }
+
+void oled_init(void) {
+    /* 400 kHz I2C for the OLED */
+    i2c_init(OLED_I2C, 400 * 1000);
+    gpio_set_function(I2C_SDA_PIN, GPIO_FUNC_I2C);
+    gpio_set_function(I2C_SCL_PIN, GPIO_FUNC_I2C);
+    gpio_pull_up(I2C_SDA_PIN);
+    gpio_pull_up(I2C_SCL_PIN);
+
+    /* SSD1306 init sequence - matches the proven adc_oled 128x64 init */
+    oled_send_cmd(0xAE);            // display off
+    oled_send_cmd(0xD5); oled_send_cmd(0x80); // clock div
+    oled_send_cmd(0xA8); oled_send_cmd(0x3F); // multiplex 1/64
+    oled_send_cmd(0xD3); oled_send_cmd(0x00); // display offset
+    oled_send_cmd(0x40);            // start line 0
+    oled_send_cmd(0x8D); oled_send_cmd(0x14); // charge pump on
+    oled_send_cmd(0x20); oled_send_cmd(0x00); // horizontal addressing mode
+    oled_send_cmd(0xA1);            // segment remap
+    oled_send_cmd(0xC8);            // COM output scan direction (remapped)
+    oled_send_cmd(0xDA); oled_send_cmd(0x12); // COM pins (128x64)
+    oled_send_cmd(0x81); oled_send_cmd(0xFF); // contrast
+    oled_send_cmd(0xD9); oled_send_cmd(0xF1); // pre-charge
+    oled_send_cmd(0xDB); oled_send_cmd(0x30); // VCOM deselect
+    oled_send_cmd(0xA4);            // resume to RAM content
+    oled_send_cmd(0xA6);            // normal (not inverted) display
+    oled_send_cmd(0x2E);            // deactivate horizontal scroll
+    oled_clear();
+    oled_display_on();
+}
+
+/* ------------------------- framebuffer helpers ------------------------- */
+
+static void fb_clear_all(void) { memset(fb, 0, sizeof(fb)); }
+
+static void fb_set_pixel(int x, int y, bool on) {
+    if (x < 0 || x >= (int) OLED_WIDTH || y < 0 || y >= (int) OLED_HEIGHT) return;
+    if (on) fb[y / 8u][(uint8_t) x] |=  (uint8_t) (1u << (y % 8u));
+    else    fb[y / 8u][(uint8_t) x] &= (uint8_t) ~(1u << (y % 8u));
+}
+
+static void fb_draw_char(int x, int y, char ch) {
+    if (ch < 0x20 || ch > 0x7E) ch = '?';
+    const uint8_t *glyph = font5x7[ch - 0x20];
+    for (int col = 0; col < 5; col++) {
+        for (int row = 0; row < 7; row++) {
+            fb_set_pixel(x + col, y + row, (glyph[col] >> row) & 1u);
+        }
+    }
+    /* one pixel spacing column (5x7 -> advances 6 px) */
+}
+
+static void fb_draw_string(int x, int y, const char *s) {
+    while (*s) {
+        fb_draw_char(x, y, *s);
+        x += 6;
+        s++;
+    }
+}
+
+static void fb_flush(void) {
+    oled_set_window_addr(0, OLED_WIDTH - 1, 0, OLED_HEIGHT / 8u - 1);
+    oled_send_data((const uint8_t *) fb, sizeof(fb));
+}
+
+/* --------------------------- high-level render --------------------------- */
+
+void oled_render(const pendrive_cfg_t *cfg, const pendrive_state_t *st) {
+    if (!cfg->enable_oled) {
+        oled_display_off();
+        return;
+    }
+    oled_display_on();
+
+    fb_clear_all();
+
+    char line[32];
+
+    /* line 0: volume label + read-only lock */
+    snprintf(line, sizeof(line), "%.11s", cfg->volume_label);
+    fb_draw_string(0, 0, line);
+    if (cfg->read_only) {
+        /* draw a small lock symbol at the right edge (page 0) */
+        for (int c = 0; c < 5; c++) {
+            fb_draw_char(116, 0, "LOCK"[c]);  // 4 letters "LOCK"
+        }
+    }
+
+    /* line 1: USB state */
+    const char *usb = st->mounted ? "USB: Conectado" : (st->writing ? "USB: Escribiendo" : "USB: Desconectado");
+    fb_draw_string(0, 10, usb);
+
+    /* lines 2-3: capacity */
+    snprintf(line, sizeof(line), "Total: %lu MB", (unsigned long) st->total_mb);
+    fb_draw_string(0, 20, line);
+    snprintf(line, sizeof(line), "Libre: %lu MB", (unsigned long) st->free_mb);
+    fb_draw_string(0, 30, line);
+
+    /* line 4: optional config error hint */
+    if (!cfg->config_valid) {
+        fb_draw_string(0, 42, "config.txt: error");
+    }
+
+    fb_flush();
+}
