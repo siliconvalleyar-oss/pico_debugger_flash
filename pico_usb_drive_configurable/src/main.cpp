@@ -31,6 +31,7 @@
 #include "usb_storage.h"
 #include "oled_display.h"
 #include "gpio_control.h"
+#include "diskio.h"
 #include "config.h"
 
 //====================================================================+
@@ -125,7 +126,19 @@ uint16_t const * tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
 
 extern "C" void tud_mount_cb(void)   { g_state.mounted = true;  gpio_led_set_solid(); }
 extern "C" void tud_umount_cb(void)  { g_state.mounted = false; gpio_led_set_fast_blink(); }
-extern "C" void tud_suspend_cb(bool rw) { (void) rw; }
+
+/* Flush pending writes so nothing is lost if the drive is unplugged now. */
+static void flush_on_disconnect(void) {
+    extern void fatfs_sync(void);
+    fatfs_sync();
+    disk_flush();
+}
+
+extern "C" void tud_suspend_cb(bool rw) {
+    (void) rw;
+    /* Host is about to (re)configure or go idle; persist staged writes. */
+    flush_on_disconnect();
+}
 extern "C" void tud_resume_cb(void)  { if (g_cfg.led_on_connect) gpio_led_set_solid(); }
 
 //====================================================================+
@@ -199,6 +212,11 @@ int main(void) {
 
     while (true) {
         tud_task();
+
+        /* Background write-behind flusher: commit dirty 4 KB blocks to flash.
+         * Runs here, after tud_task(), so USB stays responsive during the
+         * program/erase windows (see diskio.c). */
+        disk_cache_service();
 
         // Hot-plug config watcher: every CONFIG_POLL_INTERVAL_MS.
         uint32_t now = board_millis();

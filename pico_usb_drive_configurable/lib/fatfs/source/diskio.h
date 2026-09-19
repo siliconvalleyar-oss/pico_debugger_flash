@@ -5,6 +5,8 @@
 #ifndef _DISKIO_DEFINED
 #define _DISKIO_DEFINED
 
+#include "ff.h" /* Obtains integer types (BYTE, UINT, ...) */
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -32,6 +34,10 @@ DRESULT disk_read (BYTE pdrv, BYTE* buff, LBA_t sector, UINT count);
 DRESULT disk_write (BYTE pdrv, const BYTE* buff, LBA_t sector, UINT count);
 DRESULT disk_flush (void);
 DRESULT disk_ioctl (BYTE pdrv, BYTE cmd, void* buff);
+
+/* Extra helpers for the write-behind cache (main loop / USB glue). */
+int  disk_cache_service (void);   /* commit 1 dirty block (0/1); call after tud_task() */
+void disk_scsi_ping(void);        /* stamp "SCSI command just arrived" */
 
 
 /* Disk Status Bits (DSTATUS) */

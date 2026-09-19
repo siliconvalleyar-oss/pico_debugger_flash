@@ -94,6 +94,7 @@ bool tud_msc_is_writable_cb(uint8_t lun) {
 int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset,
                           void* buffer, uint32_t bufsize) {
     (void) lun;
+    disk_scsi_ping();
     uint32_t bc = block_count();
     if (lba >= bc) return -1;
     // bounds check against whole disk
@@ -114,6 +115,7 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset,
 int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset,
                            uint8_t* buffer, uint32_t bufsize) {
     (void) lun;
+    disk_scsi_ping();
     uint32_t bc = block_count();
     if (lba >= bc) return -1;
     if (g_cfg.read_only != 0) return -1;     // read-only mode (hot-applied)
@@ -142,15 +144,28 @@ int32_t tud_msc_scsi_cb(uint8_t lun, uint8_t const scsi_cmd[16],
     return -1;
 }
 
-/* Invoked when a SYNCHRONIZE_CACHE_10 arrives (host wants all data flushed). */
+/* Invoked when a SYNCHRONIZE_CACHE_10 arrives (host wants all data flushed).
+ * We do NOT flush synchronously here: committing a large backlog can stall the
+ * USB stack for seconds (4 KB erase = ~40 ms IRQ-off per block, metadata
+ * blocks need erases) and the host resets the bus / fails re-enumeration.
+ * Instead we remember the request; the main loop performs the commit one block
+ * per iteration, serving tud_task() between blocks. */
+volatile bool g_sync_requested = false;
+
 bool tud_msc_synchronize_cache_cb(uint8_t lun) {
     (void) lun;
-    /* flush FatFS buffers, and the write-behind flash cache, so the copy is
-     * durable before the host unmounts */
-    extern void fatfs_sync(void);
-    fatfs_sync();
-    disk_flush();
+    g_sync_requested = true;
     return true;
+}
+
+/* True once the host asked for a flush and it has not finished yet. */
+bool usb_storage_sync_pending(void) {
+    return g_sync_requested;
+}
+
+/* Cleared by the main loop once every dirty block reached flash. */
+void usb_storage_sync_done(void) {
+    g_sync_requested = false;
 }
 
 } // extern "C"

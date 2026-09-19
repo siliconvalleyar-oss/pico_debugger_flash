@@ -18,57 +18,117 @@
 
 #include "hardware/flash.h"
 #include "hardware/sync.h"
+#include "pico/time.h"
 #include "config.h"
 #include "pendrive.h"
 
 /* W25Q/JEDEC flash erase sector size = 4096 bytes. */
 #define FLASH_ERASE_SIZE  4096u
+#define FLASH_PROGRAM_PAGE 256u
 
 /*
- * Write-behind 4 KB block cache.
+ * Multi-block write-behind cache (one slot per 4 KB erase sector).
  *
- * Flash erase granularity is 4096 B, write granularity is 256 B. Doing a
- * read-erase-program cycle for every single 512 B sector that the host sends
- * is brutally slow (a 4 KB erase takes ~40 ms with interrupts disabled), so a
- * large file copy times out on the host side and gets truncated.
+ * Flash erase granularity is 4096 B, write granularity is 256 B. A 4 KB
+ * erase takes ~40 ms with interrupts disabled, so doing a read-erase-program
+ * cycle for every 512 B sector the host sends stalls the USB stack and the
+ * host resets the bus (truncated/corrupted copies). The old single-block
+ * cache only moved the stall: any commit happened inside the SCSI WRITE10
+ * callback, i.e. inside tud_task(), with IRQs off for ~50 ms.
  *
- * Instead we stage writes in one 4 KB RAM block and only commit it (erase +
- * program) when the write moves to another block, on CTRL_SYNC, or on an
- * explicit disk_flush(). A block whose flash content is still all 0xFF needs
- * no erase at all - the program pass alone is sufficient and much faster.
+ * Design here:
+ *   - disk_write()/disk_read() only touch RAM (never flash) until the write
+ *     request cannot be staged any more.
+ *   - A background flusher (disk_cache_service(), called from the main loop
+ *     between tud_task() calls) commits dirty blocks to flash.
+ *   - Committing programs in 256 B pages: the IRQ-off window is ~2 ms per
+ *     page, small enough that the USB controller keeps answering tokens.
+ *   - A 4 KB erase (40 ms IRQ-off) is only issued when the USB is idle
+ *     (> SCSI_IDLE_ERASE_MS since the last SCSI command) and only for blocks
+ *     that are not already all-0xFF (blank blocks skip the erase entirely).
+ *   - disk_flush() forces everything to flash (SYNCHRONIZE_CACHE / CTRL_SYNC,
+ *     suspend, unmount) so copies complete durably.
  */
-static uint8_t  block_cache[FLASH_ERASE_SIZE];   /* RAM staging buffer */
-static uint32_t cache_base = 0xFFFFFFFFu;        /* flash offset of cached block */
-static bool     cache_dirty = false;             /* cache newer than flash */
-static bool     cache_blank = false;             /* flash block is all 0xFF */
+#define NCACHE_SLOTS     16u          /* 16 x 4 KB = 64 KB RAM write-behind */
+#define SCSI_IDLE_ERASE_MS  5u        /* USB idle threshold before erasing */
+#define CACHE_FULL_FLUSH    (NCACHE_SLOTS - 4u)  /* emergency flush level */
 
-/* Load a 4 KB flash block into cache. */
-static void cache_load(uint32_t block_start) {
-    memcpy(block_cache, (const uint8_t *) (XIP_BASE + block_start), FLASH_ERASE_SIZE);
-    cache_base  = block_start;
-    cache_dirty = false;
-    cache_blank = true;
-    for (uint32_t i = 0u; i < FLASH_ERASE_SIZE; i++) {
-        if (block_cache[i] != 0xFFu) { cache_blank = false; break; }
+typedef struct {
+    uint32_t  block_start;             /* flash offset of the 4 KB block */
+    uint8_t   data[FLASH_ERASE_SIZE];  /* staged copy (RAM) */
+    uint32_t  age;                     /* load order, oldest gets evicted first */
+    bool      dirty;                   /* RAM newer than flash */
+    bool      blank;                   /* flash block is all 0xFF (no erase) */
+} cache_slot_t;
+
+static cache_slot_t s_cache[NCACHE_SLOTS];
+static uint32_t     s_age = 0;         /* monotonic allocation counter */
+static uint32_t     s_last_scsi_ms = 0;/* last SCSI activity (idle detection) */
+
+/* Find a slot holding a given flash block, or NULL. */
+static cache_slot_t *cache_find(uint32_t block_start) {
+    for (uint32_t i = 0; i < NCACHE_SLOTS; i++) {
+        if (s_cache[i].block_start == block_start) return &s_cache[i];
+    }
+    return NULL;
+}
+
+/* Load a 4 KB flash block from XIP into a fresh slot. */
+static void cache_load(cache_slot_t *slot, uint32_t block_start) {
+    memcpy(slot->data, (const uint8_t *) (XIP_BASE + block_start), FLASH_ERASE_SIZE);
+    slot->block_start = block_start;
+    slot->age         = s_age++;
+    slot->dirty       = false;
+    slot->blank       = true;
+    for (uint32_t i = 0; i < FLASH_ERASE_SIZE; i++) {
+        if (slot->data[i] != 0xFFu) { slot->blank = false; break; }
     }
 }
 
-/* Commit the dirty cache block to flash. */
-static DRESULT cache_flush(void) {
-    if (!cache_dirty) return RES_OK;
+/*
+ * Persist one dirty slot.
+ * - Erase (40 ms IRQ off) only when the block is not blank and the caller
+ *   allowed it; the caller checks idle/urgency.
+ * - Program in 256 B pages so the IRQ-off window stays ~2 ms per page.
+ */
+static void slot_commit(cache_slot_t *slot, bool erase_ok) {
+    if (!slot->dirty) return;
 
-    uint32_t saved = save_and_disable_interrupts();
-    if (!cache_blank) {
-        flash_range_erase(cache_base, FLASH_ERASE_SIZE);
+    if (erase_ok && !slot->blank) {
+        flash_range_erase(slot->block_start, FLASH_ERASE_SIZE);
     }
-    flash_range_program(cache_base, block_cache, FLASH_ERASE_SIZE);
-    restore_interrupts(saved);
+    for (uint32_t off = 0; off < FLASH_ERASE_SIZE; off += FLASH_PROGRAM_PAGE) {
+        flash_range_program(slot->block_start + off,
+                            slot->data + off, FLASH_PROGRAM_PAGE);
+    }
+    slot->dirty = false;
+    slot->blank = false;
+}
 
-    cache_dirty = false;
-    /* program always writes at least one 0 bit of the staged data, otherwise
-     * cache_dirty would not be set -> the block is no longer blank */
-    cache_blank = false;
-    return RES_OK;
+/* Oldest (least recently loaded) dirty slot. */
+static cache_slot_t *cache_oldest_dirty(void) {
+    cache_slot_t *best = NULL;
+    for (uint32_t i = 0; i < NCACHE_SLOTS; i++) {
+        if (s_cache[i].dirty &&
+            (best == NULL || s_cache[i].age < best->age)) best = &s_cache[i];
+    }
+    return best;
+}
+
+/* Oldest dirty slot that is still blank in flash (cheap commit, no erase). */
+static cache_slot_t *cache_oldest_dirty_blank(void) {
+    cache_slot_t *best = NULL;
+    for (uint32_t i = 0; i < NCACHE_SLOTS; i++) {
+        if (s_cache[i].dirty && s_cache[i].blank &&
+            (best == NULL || s_cache[i].age < best->age)) best = &s_cache[i];
+    }
+    return best;
+}
+
+static uint32_t cache_dirty_count(void) {
+    uint32_t n = 0;
+    for (uint32_t i = 0; i < NCACHE_SLOTS; i++) if (s_cache[i].dirty) n++;
+    return n;
 }
 
 /*
@@ -151,7 +211,7 @@ int flash_region_is_blank(void) {
 
 ---------------------------------------------------------------------------*/
 
-/* 
+/*
  * disk_initialize - Prepare the physical medium.
  * The flash is always present; nothing to do beyond clearing the "NOINIT"
  * flag. Called by f_mount().
@@ -171,11 +231,9 @@ DSTATUS disk_status(BYTE pdrv) {
 }
 
 /*
- * disk_read - Read sector(s) from flash.
- * The pico-sdk XIP (execute in place) lets us read flash directly with memcpy
- * while code runs from flash, so a plain copy is safe and fast.
- * If the requested range is inside a dirty (uncommitted) cache block, the
- * staged bytes are returned instead of the stale flash content.
+ * disk_read - Read sector(s), honouring uncommitted (dirty) cache content.
+ * Reads from the staging RAM when the block is dirty, otherwise straight
+ * from flash via XIP (fast, safe for reads).
  */
 DRESULT disk_read(BYTE pdrv, BYTE* buff, LBA_t sector, UINT count) {
     (void) pdrv;
@@ -191,9 +249,11 @@ DRESULT disk_read(BYTE pdrv, BYTE* buff, LBA_t sector, UINT count) {
         uint32_t want = (uint32_t) count * DISK_SECTOR_SIZE;
         if (want < to_read) to_read = want;
 
-        if (cache_dirty && block_start == cache_base) {
-            memcpy(buff, block_cache + offset_in_block, to_read);
+        cache_slot_t *slot = cache_find(block_start);
+        if (slot != NULL && slot->dirty) {
+            memcpy(buff, slot->data + offset_in_block, to_read);
         } else {
+            /* nothing staged (or already committed): flash == source */
             memcpy(buff, (const uint8_t *) (XIP_BASE + abs_offs), to_read);
         }
 
@@ -205,10 +265,10 @@ DRESULT disk_read(BYTE pdrv, BYTE* buff, LBA_t sector, UINT count) {
 }
 
 /*
- * disk_write - Write sector(s) to flash through the block cache.
- * NOTE: flash_range_erase()/flash_range_program() disable interrupts and use
- * XIP-safe code; they temporarily block the USB stack, but only once per
- * 4 KB block instead of once per 512 B sector.
+ * disk_write - Stage sectors into the RAM write-behind cache.
+ * NO flash access happens here: commits are performed by disk_cache_service()
+ * from the main loop. Only when every RAM slot is dirty do we commit the
+ * oldest block synchronously (back-pressure); this is the exceptional path.
  */
 DRESULT disk_write(BYTE pdrv, const BYTE* buff, LBA_t sector, UINT count) {
     (void) pdrv;
@@ -217,26 +277,34 @@ DRESULT disk_write(BYTE pdrv, const BYTE* buff, LBA_t sector, UINT count) {
     }
 
     while (count > 0) {
-        /* absolute flash offset of the first sector of this erase block */
         uint32_t abs_offs = g_geom.disk_offset + (uint32_t) sector * DISK_SECTOR_SIZE;
         uint32_t block_start = abs_offs & ~(FLASH_ERASE_SIZE - 1u);
         uint32_t offset_in_block = abs_offs - block_start;
 
-        /* different block -> commit the previous one, load the new one */
-        if (block_start != cache_base) {
-            if (cache_flush() != RES_OK) return RES_ERROR;
-            cache_load(block_start);
+        cache_slot_t *slot = cache_find(block_start);
+        if (slot == NULL) {
+            /* Find a clean slot; if none, commit the oldest dirty block.
+             * A blank block is committed without its (40 ms) erase. */
+            slot = NULL;
+            for (uint32_t i = 0; i < NCACHE_SLOTS; i++) {
+                if (!s_cache[i].dirty) { slot = &s_cache[i]; break; }
+            }
+            if (slot == NULL) {
+                slot = cache_oldest_dirty_blank();
+                if (slot == NULL) {
+                    slot = cache_oldest_dirty();
+                    if (slot == NULL) return RES_ERROR;   /* cannot happen */
+                }
+                slot_commit(slot, true);                  /* back-pressure */
+            }
+            cache_load(slot, block_start);
         }
 
-        /* overlay the sectors we must update */
         uint32_t to_write = FLASH_ERASE_SIZE - offset_in_block; /* bytes left in block */
         uint32_t want = (uint32_t) count * DISK_SECTOR_SIZE;
         if (want < to_write) to_write = want;
-        memcpy(block_cache + offset_in_block, buff, to_write);
-        cache_dirty = true;
-        /* NB: cache_blank tracks the *flash* block, which is still 0xFF until
-         * flush commits. Do not clear it here, or the first write to a
-         * freshly-erased area would trigger a needless erase. */
+        memcpy(slot->data + offset_in_block, buff, to_write);
+        slot->dirty = true;
 
         /* advance */
         uint32_t sectors_done = to_write / DISK_SECTOR_SIZE;
@@ -248,12 +316,60 @@ DRESULT disk_write(BYTE pdrv, const BYTE* buff, LBA_t sector, UINT count) {
 }
 
 /*
- * disk_flush - Force pending writes out of the cache to flash.
- * Called on SYNCHRONIZE_CACHE so a copy completes durably before the host
- * unmounts.
+ * disk_cache_service - Background flusher, called from the main loop right
+ * after tud_task() so the USB stack is served between flash commits.
+ *
+ * Policy (one block per call, keeps the IRQ-off windows short):
+ *   - Nothing to do -> returns 0 immediately.
+ *   - If USB has been idle for SCSI_IDLE_ERASE_MS or the cache is close to
+ *     full, commit the oldest dirty block (erasing it only if needed).
+ *   - Otherwise, commit the oldest dirty block that is still blank in flash
+ *     (program-only, ~2 ms IRQ-off per page -> safe while writing).
+ *
+ * Returns the number of committed blocks (0 or 1).
+ */
+int disk_cache_service(void) {
+    uint32_t dirty = cache_dirty_count();
+    if (dirty == 0u) return 0;
+
+    uint32_t now = to_ms_since_boot(get_absolute_time());
+    bool idle = (now - s_last_scsi_ms >= SCSI_IDLE_ERASE_MS) ||
+                (now < s_last_scsi_ms);              /* wraps */
+
+    cache_slot_t *slot = NULL;
+    if (idle || dirty >= CACHE_FULL_FLUSH) {
+        slot = cache_oldest_dirty();
+    } else {
+        slot = cache_oldest_dirty_blank();
+    }
+    if (slot == NULL) return 0;
+
+    slot_commit(slot, idle || dirty >= CACHE_FULL_FLUSH);
+    return 1;
+}
+
+/*
+ * disk_flush - Force all pending writes out of the cache to flash.
+ * Called on SYNCHRONIZE_CACHE, CTRL_SYNC, suspend and unmount so everything
+ * is durable before the host unmounts / is unplugged.
  */
 DRESULT disk_flush(void) {
-    return cache_flush();
+    int left = 1;
+    while (left > 0) {
+        left = 0;
+        cache_slot_t *slot = cache_oldest_dirty();
+        if (slot != NULL) {
+            slot_commit(slot, true);
+            left = 1;
+        }
+    }
+    return RES_OK;
+}
+
+/* Stamp "SCSI activity now" - called at the start of every MSC command so
+ * the flusher knows when the USB is idle and can issue a 40 ms erase. */
+void disk_scsi_ping(void) {
+    s_last_scsi_ms = to_ms_since_boot(get_absolute_time());
 }
 
 /*
