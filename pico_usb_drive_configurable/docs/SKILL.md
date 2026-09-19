@@ -322,7 +322,7 @@ make -j"$(nproc)"
 # Verificar montaje RW en Linux
 lsblk
 sudo dmesg | tail        # debe montar rw (no "invalid start cluster")
-# si sale read-only: reformatear con sudo mkfs.vfat -F 16 <dev>
+# si sale read-only: reformatear con sudo mkfs.exfat <dev>
 ```
 
 ---

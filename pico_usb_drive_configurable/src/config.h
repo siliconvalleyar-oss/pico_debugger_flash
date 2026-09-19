@@ -141,8 +141,8 @@
  *
  * exFAT: FatFS is built with FF_FS_EXFAT=1 (lib/fatfs/source/ffconf.h) so a
  * volume formatted as exFAT by Android is READ natively and is never wiped on
- * boot. The volume is only auto-formatted (FAT12/16, this disk is < 32 MB) when
- * the flash area is truly blank.
+ * boot. The volume is only auto-formatted as exFAT (FM_EXFAT, see
+ * fatfs_interface.cpp) when the flash area is truly blank.
  */
 #define FAT_SECTOR_SIZE           512u
 

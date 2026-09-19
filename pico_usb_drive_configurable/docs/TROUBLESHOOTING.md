@@ -13,7 +13,8 @@ then sees e.g. `invalid start cluster (start 00000200)` instead of `00000002`.
 Fixes / checks:
 
 - If your drive was written by an older (buggy) firmware, back up and
-  reformat: unmount, then `sudo mkfs.vfat -F 16 <dev>` and remount.
+  reformat: unmount, then `sudo mkfs.exfat <dev>` (or `mkfs.vfat` for FAT) and
+  remount.
 - Our current firmware formats the volume cleanly on first boot, so a fresh
   drive should mount rw out of the box.
 - Check `dmesg` for `error, fat_get_cluster: invalid start cluster`.
