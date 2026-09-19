@@ -6,6 +6,7 @@
 #define _DISKIO_DEFINED
 
 #include "ff.h" /* Obtains integer types (BYTE, UINT, ...) */
+#include <stdbool.h> /* g_cache_force_erase flag */
 
 #ifdef __cplusplus
 extern "C" {
@@ -37,6 +38,8 @@ DRESULT disk_ioctl (BYTE pdrv, BYTE cmd, void* buff);
 
 /* Extra helpers for the write-behind cache (main loop / USB glue). */
 int  disk_cache_service (void);   /* commit 1 dirty block (0/1); call after tud_task() */
+uint32_t disk_cache_dirty(void);  /* dirty blocks still awaiting flash */
+extern bool g_cache_force_erase;  /* set while SYNCHRONIZE_CACHE pending */
 void disk_scsi_ping(void);        /* stamp "SCSI command just arrived" */
 
 

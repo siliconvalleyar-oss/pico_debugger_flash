@@ -213,10 +213,34 @@ int main(void) {
     while (true) {
         tud_task();
 
-        /* Background write-behind flusher: commit dirty 4 KB blocks to flash.
-         * Runs here, after tud_task(), so USB stays responsive during the
-         * program/erase windows (see diskio.c). */
-        disk_cache_service();
+        /* Background write-behind flusher: commit dirty 4 KB blocks to flash
+         * one 256-B page at a time so each IRQ-off window is ~2 ms and the
+         * USB stack stays responsive. Drain a few pages per iteration
+         * (serving USB between them) so a big `sync` drains fast enough;
+         * erases (40 ms) are only issued when the USB is idle, or while a
+         * SYNCHRONIZE_CACHE / SYNCHRONIZE_CACHE_10 flush is pending (the
+         * host asked for a flush, so it will not issue new writes until we
+         * signal completion -- safe to erase then). See diskio.c. */
+        if (usb_storage_sync_pending()) {
+            extern bool g_cache_force_erase;
+            extern uint32_t disk_cache_dirty(void);
+            g_cache_force_erase = true;               /* allow 40 ms erases */
+            uint32_t spins = 0;
+            while (disk_cache_dirty() > 0u && spins < 32u) {
+                disk_cache_service();
+                tud_task();                           /* serve USB between */
+                spins++;
+            }
+            if (disk_cache_dirty() == 0u) {
+                usb_storage_sync_done();
+                g_cache_force_erase = false;
+            }
+        } else {
+            for (uint32_t f = 0; f < 8u; f++) {
+                if (!disk_cache_service()) break;
+                tud_task();
+            }
+        }
 
         // Hot-plug config watcher: every CONFIG_POLL_INTERVAL_MS.
         uint32_t now = board_millis();

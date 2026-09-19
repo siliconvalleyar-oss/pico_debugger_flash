@@ -25,6 +25,13 @@ void usb_storage_init(void);
 /* Number of 512-byte sectors the MSC LUN exposes (from g_geom runtime size). */
 uint32_t usb_storage_block_count(void);
 
+/* True while a SYNCHRONIZE_CACHE command is pending (the host asked for a
+ * flush and the data has not reached flash yet). The main loop force-flushes
+ * the write-behind cache (letting it issue 40 ms erases) and then calls
+ * usb_storage_sync_done() once everything is durable. See diskio.c. */
+bool usb_storage_sync_pending(void);
+void usb_storage_sync_done(void);
+
 #ifdef __cplusplus
 }
 #endif
