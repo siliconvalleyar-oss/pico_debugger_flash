@@ -95,6 +95,7 @@ pico_usb_drive_configurable/
 | [HARDWARE_SETUP.md](HARDWARE_SETUP.md) | Wiring: OLED, LED, flash notes |
 | [API_REFERENCE.md](API_REFERENCE.md) | Internal module API used by `src/` |
 | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Common issues and fixes |
+| [LATEST.md](LATEST.md) | Latest changes: write-behind cache, root-dir corruption incident & recovery |
 
 ---
 

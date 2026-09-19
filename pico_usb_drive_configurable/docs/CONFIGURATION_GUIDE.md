@@ -93,6 +93,10 @@ for documentation). Do not raise them above the physical flash size.
 
 ### USB identification
 
+Compile-time only (no `config.txt` key): the USB descriptors are baked into
+the firmware, so changing them requires re-compiling and re-flashing. They show
+up in `lsusb` / the OS device properties (e.g. "My Companion" on Android).
+
 | Macro | Value | Meaning |
 |-------|-------|---------|
 | `USB_VID` | `0xCAFE` | Vendor ID |
