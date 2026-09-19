@@ -1,0 +1,36 @@
+# ---- Build artifacts ----
+build/
+*/build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+compile_commands.json
+Makefile
+
+# ---- Compiler artifacts ----
+*.o
+*.obj
+*.a
+*.so
+*.elf
+*.map
+*.bin
+*.hex
+*.dis
+
+# ---- UF2 generados por el build ----
+*.uf2
+
+# ---- Herramientas del SDK que se generan al compilar ----
+*_deps/
+pioasm/
+pioasm-install/
+picotool/
+
+# ---- Editor / OS ----
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
