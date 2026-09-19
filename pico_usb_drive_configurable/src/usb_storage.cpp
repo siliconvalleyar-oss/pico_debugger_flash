@@ -145,9 +145,11 @@ int32_t tud_msc_scsi_cb(uint8_t lun, uint8_t const scsi_cmd[16],
 /* Invoked when a SYNCHRONIZE_CACHE_10 arrives (host wants all data flushed). */
 bool tud_msc_synchronize_cache_cb(uint8_t lun) {
     (void) lun;
-    /* flash writes are synchronous already, but flush FatFS buffers to be safe */
+    /* flush FatFS buffers, and the write-behind flash cache, so the copy is
+     * durable before the host unmounts */
     extern void fatfs_sync(void);
     fatfs_sync();
+    disk_flush();
     return true;
 }
 

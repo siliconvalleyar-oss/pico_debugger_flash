@@ -25,6 +25,53 @@
 #define FLASH_ERASE_SIZE  4096u
 
 /*
+ * Write-behind 4 KB block cache.
+ *
+ * Flash erase granularity is 4096 B, write granularity is 256 B. Doing a
+ * read-erase-program cycle for every single 512 B sector that the host sends
+ * is brutally slow (a 4 KB erase takes ~40 ms with interrupts disabled), so a
+ * large file copy times out on the host side and gets truncated.
+ *
+ * Instead we stage writes in one 4 KB RAM block and only commit it (erase +
+ * program) when the write moves to another block, on CTRL_SYNC, or on an
+ * explicit disk_flush(). A block whose flash content is still all 0xFF needs
+ * no erase at all - the program pass alone is sufficient and much faster.
+ */
+static uint8_t  block_cache[FLASH_ERASE_SIZE];   /* RAM staging buffer */
+static uint32_t cache_base = 0xFFFFFFFFu;        /* flash offset of cached block */
+static bool     cache_dirty = false;             /* cache newer than flash */
+static bool     cache_blank = false;             /* flash block is all 0xFF */
+
+/* Load a 4 KB flash block into cache. */
+static void cache_load(uint32_t block_start) {
+    memcpy(block_cache, (const uint8_t *) (XIP_BASE + block_start), FLASH_ERASE_SIZE);
+    cache_base  = block_start;
+    cache_dirty = false;
+    cache_blank = true;
+    for (uint32_t i = 0u; i < FLASH_ERASE_SIZE; i++) {
+        if (block_cache[i] != 0xFFu) { cache_blank = false; break; }
+    }
+}
+
+/* Commit the dirty cache block to flash. */
+static DRESULT cache_flush(void) {
+    if (!cache_dirty) return RES_OK;
+
+    uint32_t saved = save_and_disable_interrupts();
+    if (!cache_blank) {
+        flash_range_erase(cache_base, FLASH_ERASE_SIZE);
+    }
+    flash_range_program(cache_base, block_cache, FLASH_ERASE_SIZE);
+    restore_interrupts(saved);
+
+    cache_dirty = false;
+    /* program always writes at least one 0 bit of the staged data, otherwise
+     * cache_dirty would not be set -> the block is no longer blank */
+    cache_blank = false;
+    return RES_OK;
+}
+
+/*
  * Runtime flash geometry. Initialised with the 2 MB fallback and overwritten
  * by flash_geom_init() as soon as the JEDEC ID is available (start of main()).
  */
@@ -127,23 +174,41 @@ DSTATUS disk_status(BYTE pdrv) {
  * disk_read - Read sector(s) from flash.
  * The pico-sdk XIP (execute in place) lets us read flash directly with memcpy
  * while code runs from flash, so a plain copy is safe and fast.
+ * If the requested range is inside a dirty (uncommitted) cache block, the
+ * staged bytes are returned instead of the stale flash content.
  */
 DRESULT disk_read(BYTE pdrv, BYTE* buff, LBA_t sector, UINT count) {
     (void) pdrv;
     if (sector + count > (LBA_t) (g_geom.disk_size / DISK_SECTOR_SIZE)) {
         return RES_PARERR;
     }
-    const uint8_t *src = (const uint8_t *) (XIP_BASE + g_geom.disk_offset + (sector * DISK_SECTOR_SIZE));
-    memcpy(buff, src, (size_t) count * DISK_SECTOR_SIZE);
+    while (count > 0) {
+        uint32_t abs_offs = g_geom.disk_offset + (uint32_t) sector * DISK_SECTOR_SIZE;
+        uint32_t block_start = abs_offs & ~(FLASH_ERASE_SIZE - 1u);
+        uint32_t offset_in_block = abs_offs - block_start;
+
+        uint32_t to_read = FLASH_ERASE_SIZE - offset_in_block;
+        uint32_t want = (uint32_t) count * DISK_SECTOR_SIZE;
+        if (want < to_read) to_read = want;
+
+        if (cache_dirty && block_start == cache_base) {
+            memcpy(buff, block_cache + offset_in_block, to_read);
+        } else {
+            memcpy(buff, (const uint8_t *) (XIP_BASE + abs_offs), to_read);
+        }
+
+        buff += to_read;
+        sector += to_read / DISK_SECTOR_SIZE;
+        count -= to_read / DISK_SECTOR_SIZE;
+    }
     return RES_OK;
 }
 
 /*
- * disk_write - Write sector(s) to flash.
- * Buttons: Erase granularity is 4096 B, write granularity is 256 B. To keep
- * it simple and correct we read-modify-erase-write whole 4 KB erase blocks.
- * NOTE: flash_range_program() disables interrupts and uses XIP-safe code;
- * temporarily blocks the USB stack (acceptable for small writes).
+ * disk_write - Write sector(s) to flash through the block cache.
+ * NOTE: flash_range_erase()/flash_range_program() disable interrupts and use
+ * XIP-safe code; they temporarily block the USB stack, but only once per
+ * 4 KB block instead of once per 512 B sector.
  */
 DRESULT disk_write(BYTE pdrv, const BYTE* buff, LBA_t sector, UINT count) {
     (void) pdrv;
@@ -151,29 +216,27 @@ DRESULT disk_write(BYTE pdrv, const BYTE* buff, LBA_t sector, UINT count) {
         return RES_WRPRT;
     }
 
-    /* small internal buffer must be in normal RAM (not flash XIP) */
-    static uint8_t erase_buf[FLASH_ERASE_SIZE];
-    /* process one full erase block at a time */
     while (count > 0) {
         /* absolute flash offset of the first sector of this erase block */
         uint32_t abs_offs = g_geom.disk_offset + (uint32_t) sector * DISK_SECTOR_SIZE;
         uint32_t block_start = abs_offs & ~(FLASH_ERASE_SIZE - 1u);
         uint32_t offset_in_block = abs_offs - block_start;
 
-        /* read the current block content (it may be not fully rewritten) */
-        memcpy(erase_buf, (const uint8_t *) (XIP_BASE + block_start), FLASH_ERASE_SIZE);
+        /* different block -> commit the previous one, load the new one */
+        if (block_start != cache_base) {
+            if (cache_flush() != RES_OK) return RES_ERROR;
+            cache_load(block_start);
+        }
 
         /* overlay the sectors we must update */
         uint32_t to_write = FLASH_ERASE_SIZE - offset_in_block; /* bytes left in block */
         uint32_t want = (uint32_t) count * DISK_SECTOR_SIZE;
         if (want < to_write) to_write = want;
-        memcpy(erase_buf + offset_in_block, buff, to_write);
-
-        /* erase + program the whole 4 KB block */
-        uint32_t saved = save_and_disable_interrupts();
-        flash_range_erase(block_start, FLASH_ERASE_SIZE);
-        flash_range_program(block_start, erase_buf, FLASH_ERASE_SIZE);
-        restore_interrupts(saved);
+        memcpy(block_cache + offset_in_block, buff, to_write);
+        cache_dirty = true;
+        /* NB: cache_blank tracks the *flash* block, which is still 0xFF until
+         * flush commits. Do not clear it here, or the first write to a
+         * freshly-erased area would trigger a needless erase. */
 
         /* advance */
         uint32_t sectors_done = to_write / DISK_SECTOR_SIZE;
@@ -185,6 +248,15 @@ DRESULT disk_write(BYTE pdrv, const BYTE* buff, LBA_t sector, UINT count) {
 }
 
 /*
+ * disk_flush - Force pending writes out of the cache to flash.
+ * Called on SYNCHRONIZE_CACHE so a copy completes durably before the host
+ * unmounts.
+ */
+DRESULT disk_flush(void) {
+    return cache_flush();
+}
+
+/*
  * disk_ioctl - Control device dependent features.
  * We support CTRL_SYNC (flush) and GET_SECTOR_COUNT which are the ones the
  * FAT layer actually needs. flash writes are synchronous already.
@@ -193,8 +265,9 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void* buff) {
     (void) pdrv;
     switch (cmd) {
         case CTRL_SYNC:
-            /* flash_range_program returns after bytes are committed -> synced */
-            return RES_OK;
+            /* write-behind cache must be committed before FatFS considers the
+             * media synced */
+            return disk_flush();
 
         case GET_SECTOR_COUNT:
             *(LBA_t*) buff = (LBA_t) (g_geom.disk_size / DISK_SECTOR_SIZE);
