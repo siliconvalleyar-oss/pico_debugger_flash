@@ -15,12 +15,13 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
 
 # Directorios clave del proyecto.
-# Se elige el firmware con PROJECT: PROJECT=blink (default) u PROJECT=oled_ssd1306.
-PROJECT="${PROJECT:-blink}"
+# Se elige el firmware con PROJECT (default: pico_usb_drive_configurable).
+PROJECT="${PROJECT:-pico_usb_drive_configurable}"
 PROJECT_DIR="${PROJECT_DIR:-${REPO_ROOT}/${PROJECT}}"
 BUILD_DIR="${BUILD_DIR:-${PROJECT_DIR}/build}"
-ELF_FILE="${ELF_FILE:-${BUILD_DIR}/${PROJECT}.elf}"
-UF2_FILE="${UF2_FILE:-${BUILD_DIR}/${PROJECT}.uf2}"
+# Los binarios quedan en build/src/ porque el CMake del proyecto hace add_subdirectory(src).
+ELF_FILE="${ELF_FILE:-${BUILD_DIR}/src/${PROJECT}.elf}"
+UF2_FILE="${UF2_FILE:-${BUILD_DIR}/src/${PROJECT}.uf2}"
 
 # Configuraciones de OpenOCD incluidas en el repo
 CONFIG_FILE="${CONFIG_FILE:-${REPO_ROOT}/debugprobe-openocd.cfg}"
