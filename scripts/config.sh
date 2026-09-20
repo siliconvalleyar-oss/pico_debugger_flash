@@ -22,10 +22,10 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
 # Se elige el firmware con PROJECT. El nombre de la CARPETA del proyecto
 # puede diferir del nombre del TARGET CMake: usb_oled_drive_configurable/
 # contiene el proyecto OLED cuyo CMake crea "pico_usb_drive_configurable".
-PROJECT="${PROJECT:-pico_usb_drive_configurable}"
-if [ -d "${REPO_ROOT}/usb_oled_drive_configurable" ]; then
-    PROJECT_DIR="${PROJECT_DIR:-${REPO_ROOT}/usb_oled_drive_configurable}"
-    PROJECT_CMAKE_TARGET="pico_usb_drive_configurable"
+PROJECT="${PROJECT:-keyboard}"
+if [ -d "${REPO_ROOT}/keyboard" ]; then
+    PROJECT_DIR="${PROJECT_DIR:-${REPO_ROOT}/keyboard}"
+    PROJECT_CMAKE_TARGET="pico_keyboard_bridge"
 else
     PROJECT_DIR="${PROJECT_DIR:-${REPO_ROOT}/${PROJECT}}"
     PROJECT_CMAKE_TARGET="${PROJECT}"
