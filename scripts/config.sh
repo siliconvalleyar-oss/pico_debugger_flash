@@ -16,8 +16,15 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
 
 # Directorios clave del proyecto.
 # Se elige el firmware con PROJECT (default: pico_usb_drive_configurable).
+# En esta rama (pendrive_config_oled) la carpeta del proyecto es
+# usb_oled_drive_configurable, pero el target CMake sigue siendo
+# pico_usb_drive_configurable (project() en su CMakeLists.txt).
 PROJECT="${PROJECT:-pico_usb_drive_configurable}"
-PROJECT_DIR="${PROJECT_DIR:-${REPO_ROOT}/${PROJECT}}"
+if [ -d "${REPO_ROOT}/usb_oled_drive_configurable" ]; then
+    PROJECT_DIR="${PROJECT_DIR:-${REPO_ROOT}/usb_oled_drive_configurable}"
+else
+    PROJECT_DIR="${PROJECT_DIR:-${REPO_ROOT}/${PROJECT}}"
+fi
 BUILD_DIR="${BUILD_DIR:-${PROJECT_DIR}/build}"
 # Los binarios quedan en build/src/ porque el CMake del proyecto hace add_subdirectory(src).
 ELF_FILE="${ELF_FILE:-${BUILD_DIR}/src/${PROJECT}.elf}"

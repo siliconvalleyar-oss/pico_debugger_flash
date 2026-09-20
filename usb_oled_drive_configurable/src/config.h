@@ -128,6 +128,7 @@
  */
 #define USB_MANUFACTURER          "MyCompany"
 #define USB_PRODUCT               "PicoDrive"
+#define USB_SERIAL                "20260901"
 
 //--------------------------------------------------------------------+
 // FILESYSTEM
