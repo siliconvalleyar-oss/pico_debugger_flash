@@ -1,57 +1,60 @@
-# keyboard/src/CMakeLists.txt - pico_kb_bridge: BLE doorbell FFE0/FFE1 (patrón
-# Verified 3x del SDK ble_doorbell) + TinyUSB HID keyboard 6KRO.
-#
-# REGLA DE ORO de esta sesión: el CMake es CLAVE literal del SDK. Copiar el
-# doorbell VERIFIED y SOLO renombrar puentes; nada de pico_btstack_make_gatt_header
-# con target inventado (leccion aprendida en las 3 config fallidas anteriores).
-
 cmake_minimum_required(VERSION 3.13)
 
-project(keyboard_bridge C CXX ASM)
+# keyboard/src/CMakeLists.txt — pico_keyboard_bridge: PUENTE BLE "doorbell"
+# (GATT FFE0/FFE1, doorbell.gatt 1:1 del SDK Verified) -> USB HID keyboard
+# (TinyUSB 6KRO). Patrón EXACTO del SDK ble_doorbell: UN SOLO executable
+# (sin librerías kb_* STATIC — esa fue la desobediencia que aisló main.c:4
+# de cyw43_arch.h; aquí es 1 executable como doorbell_server Verified).
 
-# --- 1) ASCII -> HID usage+shift (tabla de 95 chars, puente texto->teclado)
-add_library(kb_ascii_hid STATIC ascii_to_hid.cpp)
-target_include_directories(kb_ascii_hid PUBLIC ${CMAKE_CURRENT_LIST_DIR})
-target_compile_features(kb_ascii_hid PUBLIC cxx_std_17)
-target_link_libraries(kb_ascii_hid PUBLIC pico_stdlib)
+add_executable(pico_keyboard_bridge
+    main.c
+    ble_server.c
+    ascii_to_hid.cpp
+    usb_kbd.c
+    )
+target_include_directories(pico_keyboard_bridge PUBLIC
+    ${CMAKE_CURRENT_LIST_DIR}
+    ${CMAKE_CURRENT_LIST_DIR}/../config # common btstack config (doorbell)
+    ${CMAKE_CURRENT_LIST_DIR}/../BTstack # generated doorbell.h
+    ${CMAKE_CURRENT_LIST_DIR}/../../config # root keyboard config
+    )
+target_link_libraries(pico_keyboard_bridge PUBLIC
+    pico_stdlib
+    pico_btstack_ble
+    pico_btstack_cyw43
+    pico_cyw43_arch_none
+    tinyusb_device
+    )
+pico_btstack_make_gatt_header(pico_keyboard_bridge ${CMAKE_CURRENT_LIST_DIR}/doorbell.gatt)
+pico_enable_stdio_usb(pico_keyboard_bridge 1)
+pico_enable_stdio_uart(pico_keyboard_bridge 0)
+pico_add_extra_outputs(pico_keyboard_bridge) — PUENTE BLE doorbell(FFE0/FFE1) -> USB HID keyboard
+# LITERAL 1:1 del SDK ble_doorbell/CMakeLists.txt (que Verified [100%] dio el
+# ELF de doorbell en esta sesión 3× — la lección: NADA de librerías kb_* con
+# includes inventados; TODO lo que el SDK enlaza es lo que la PROBE SWD acepta)
 
-# --- 2) USB HID keyboard (TinyUSB device boot keyboard 6KRO)
-add_library(kb_usb_hid STATIC usb_kbd.c)
-target_include_directories(kb_usb_hid PUBLIC ${CMAKE_CURRENT_LIST_DIR})
-target_link_libraries(kb_usb_hid PUBLIC pico_stdlib tinyusb_device)
-target_include_directories(kb_usb_hid PUBLIC ${CMAKE_CURRENT_LIST_DIR}/../)
-
-# --- 3) BLE GATT server "doorbell" (FFE0 service / FFE1 write, Verified 3x)
-#     Se llama EXACTAMENTE como el SDK: doorbell_server. El .gatt es el del SDK.
-add_library(kb_ble_server STATIC ble_server.c)
-target_include_directories(kb_ble_server PUBLIC
-        ${CMAKE_CURRENT_LIST_DIR}
-        )
-target_link_libraries(kb_ble_server PUBLIC
-        pico_stdlib
-        pico_btstack_ble
-        pico_btstack_cyw43
-        pico_cyw43_arch_none
-        )
-
-# --- 4) Puente final: doorbell(FFF1 write) -> ascii -> USB HID
-add_executable(pico_keyboard_bridge main.c)
+add_executable(pico_keyboard_bridge
+    main.c
+    ble_server.c
+    ascii_to_hid.cpp
+    usb_kbd.c
+    )
+target_link_libraries(pico_keyboard_bridge
+    pico_stdlib
+    pico_btstack_ble
+    pico_btstack_cyw43
+    pico_cyw43_arch_none
+    tinyusb_device
+    )
 target_include_directories(pico_keyboard_bridge PRIVATE
-        ${CMAKE_CURRENT_LIST_DIR}
-        )
-target_link_libraries(pico_keyboard_bridge PRIVATE
-        pico_stdlib
-        kb_ascii_hid
-        kb_usb_hid
-        kb_ble_server
-        pico_btstack_ble
-        pico_btstack_cyw43
-        pico_cyw43_arch_none
-        tinyusb_device
-        )
-
+    ${CMAKE_CURRENT_LIST_DIR}
+    ${CMAKE_CURRENT_LIST_DIR}/../config
+    ${CMAKE_CURRENT_LIST_DIR}/../BTstack
+    ${CMAKE_CURRENT_BINARY_DIR}
+    )
+pico_btstack_make_gatt_header(pico_keyboard_bridge PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/doorbell.gatt
+    )
 pico_enable_stdio_usb(pico_keyboard_bridge 1)
 pico_enable_stdio_uart(pico_keyboard_bridge 0)
 pico_add_extra_outputs(pico_keyboard_bridge)
-
-pico_btstack_make_gatt_header(pico_keyboard_bridge PRIVATE ${CMAKE_CURRENT_LIST_DIR}/doorbell.gatt)

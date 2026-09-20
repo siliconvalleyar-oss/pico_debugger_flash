@@ -15,7 +15,7 @@
 
 static btstack_packet_callback_registration_t hci_cb_registration;
 static uint16_t kb_led_pin = 0;
-static volatile bool kb_connected = false3;
+static volatile bool kb_connected = false;;
 
 /* Callback GATT Write (FFE1): doorbell implementa así — echo del valor. */
 static void kb_att_write(void) {
