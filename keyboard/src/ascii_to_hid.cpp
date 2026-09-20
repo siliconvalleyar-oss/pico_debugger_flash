@@ -7,7 +7,7 @@ static bool map_alpha(char c, HidKey *out) {
     if (c >= 'A' && c <= 'Z') { out->usage = (uint8_t)(0x04 + (c - 'A')); out->shift = 1; return true; }
     return false;
 }
-bool ascii_to_hid(char c, HidKey *out) {
+extern "C" bool ascii_to_hid(char c, HidKey *out) {
     if (c < 0x20 || c > 0x7E) return false;
     if (map_alpha(c, out)) return true;
     if (c >= '0' && c <= '9') { out->usage = (uint8_t)(0x1E + (c - '0')); out->shift = 0; return true; }
