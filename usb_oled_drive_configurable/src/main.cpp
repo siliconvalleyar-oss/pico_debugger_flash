@@ -107,13 +107,13 @@ uint16_t const * tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
     (void) langid;
     if (index == 0) {
         string_desc[1] = 0x0409;                 // English (US)
-        string_desc[0] = (4 << 8) | 1;           // langid string
+        string_desc[0] = (uint16_t) (4 | (TUSB_DESC_STRING << 8));   // langid string
         return string_desc;
     }
     if (index >= 4) return NULL;
     uint8_t len = (uint8_t) strlen(string_desc_arr[index]);
     if (len > 31) len = 31;
-    string_desc[0] = (uint16_t) (((2 + len) << 8) | 1);
+    string_desc[0] = (uint16_t) ((2 + 2 * len) | (TUSB_DESC_STRING << 8));
     for (uint8_t i = 0; i < len; i++) {
         string_desc[1 + i] = string_desc_arr[index][i];
     }
