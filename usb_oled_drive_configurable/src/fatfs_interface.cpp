@@ -71,7 +71,7 @@ int fatfs_mount(void) {
          * reformat, which is the whole point of this project. */
         MKFS_PARM opt;
         memset(&opt, 0, sizeof(opt));
-        opt.fmt = FM_EXFAT;
+        opt.fmt = FM_FAT32;   // Android-first: vold monta FAT16/32 nativo sin FUSE
         fr = f_mkfs("", &opt, mkfs_work, sizeof(mkfs_work));
         if (fr != FR_OK) return map_result(fr);
 
