@@ -19,16 +19,21 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
 # En esta rama (pendrive_config_oled) la carpeta del proyecto es
 # usb_oled_drive_configurable, pero el target CMake sigue siendo
 # pico_usb_drive_configurable (project() en su CMakeLists.txt).
+# Se elige el firmware con PROJECT. El nombre de la CARPETA del proyecto
+# puede diferir del nombre del TARGET CMake: usb_oled_drive_configurable/
+# contiene el proyecto OLED cuyo CMake crea "pico_usb_drive_configurable".
 PROJECT="${PROJECT:-pico_usb_drive_configurable}"
 if [ -d "${REPO_ROOT}/usb_oled_drive_configurable" ]; then
     PROJECT_DIR="${PROJECT_DIR:-${REPO_ROOT}/usb_oled_drive_configurable}"
+    PROJECT_CMAKE_TARGET="pico_usb_drive_configurable"
 else
     PROJECT_DIR="${PROJECT_DIR:-${REPO_ROOT}/${PROJECT}}"
+    PROJECT_CMAKE_TARGET="${PROJECT}"
 fi
 BUILD_DIR="${BUILD_DIR:-${PROJECT_DIR}/build}"
 # Los binarios quedan en build/src/ porque el CMake del proyecto hace add_subdirectory(src).
-ELF_FILE="${ELF_FILE:-${BUILD_DIR}/src/${PROJECT}.elf}"
-UF2_FILE="${UF2_FILE:-${BUILD_DIR}/src/${PROJECT}.uf2}"
+ELF_FILE="${ELF_FILE:-${BUILD_DIR}/src/${PROJECT_CMAKE_TARGET}.elf}"
+UF2_FILE="${UF2_FILE:-${BUILD_DIR}/src/${PROJECT_CMAKE_TARGET}.uf2}"
 
 # Configuraciones de OpenOCD incluidas en el repo
 CONFIG_FILE="${CONFIG_FILE:-${REPO_ROOT}/debugprobe-openocd.cfg}"
