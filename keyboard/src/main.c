@@ -16,6 +16,11 @@
 
 #define HEARTBEAT_PERIOD_MS 1000
 
+/* Pico W LED is on CYW43 GPIO 0 */
+#ifndef CYW43_WL_GPIO_LED_PIN
+#define CYW43_WL_GPIO_LED_PIN 0
+#endif
+
 /* Heartbeat: toggle LED when BLE has data queued */
 static void heartbeat_handler(struct btstack_timer_source *ts) {
     cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, ble_server_connected());

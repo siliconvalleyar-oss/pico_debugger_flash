@@ -13,3 +13,4 @@ extern "C" {
 bool ascii_to_hid(char c, HidKey *out);
 #ifdef __cplusplus
 }
+#endif

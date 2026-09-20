@@ -107,7 +107,6 @@ void ble_server_init(void) {
     att_server_register_packet_handler(packet_handler);
 
     /* Configure advertising */
-    gap_set_local_name(BLE_NAME);
     gap_advertisements_set_data(adv_data_len, adv_data);
     gap_advertisements_enable(1);
 }
