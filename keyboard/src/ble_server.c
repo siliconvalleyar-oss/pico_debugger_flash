@@ -15,7 +15,6 @@
 
 #include "ble_server.h"
 
-#define HEARTBEAT_PERIOD_MS 1000
 #define APP_AD_FLAGS 0x06
 #define BLE_NAME "Pico-KB-Bridge"
 

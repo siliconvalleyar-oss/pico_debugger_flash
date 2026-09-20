@@ -3,7 +3,6 @@
  * Also provides USB descriptors required by TinyUSB.
  */
 #include "usb_kbd.h"
-#include "ascii_to_hid.h"
 #include "tusb.h"
 #include <string.h>
 
@@ -116,35 +115,4 @@ void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t rep
     (void)itf; (void)report_id; (void)report_type; (void)buffer; (void)bufsize;
 }
 
-//-----------------------------------
-// Keyboard API
-//-----------------------------------
 
-/* Reporte "todas teclas sueltas" de 8 bytes (boot keyboard). */
-void usb_kbd_release_all(void) {
-    uint8_t empty[8] = {0};
-    tud_hid_keyboard_report(0, 0x00, empty + 2);
-}
-
-/* Teclea UN carácter ASCII convirtiéndolo con la tabla (usage + shift).
- * Devuelve true si se aceptó. */
-bool usb_kbd_type_char(char c) {
-    HidKey k;
-    if (!ascii_to_hid(c, &k)) return false;
-
-    uint8_t report[8] = {0};
-    report[0] = k.shift ? 0x02 : 0x00;
-    report[2] = k.usage;
-    tud_hid_keyboard_report(0, report[0], report + 2);
-    tud_task();
-    return true;
-}
-
-/* Teclea una cadena completa pasando por la cola TinyUSB. */
-void usb_kbd_type_string(const char *s) {
-    while (s && *s) {
-        usb_kbd_type_char(*s);
-        s++;
-    }
-    usb_kbd_release_all();
-}
