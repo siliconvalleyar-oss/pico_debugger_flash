@@ -59,8 +59,21 @@ BLE de control solo acepta al dispositivo que vos mismo emparejaste.
 - 1x **Raspberry Pi Pico W** (necesita el chip CYW43439 para BLE nativo;
   una Pico normal sin radio **no puede** correr este proyecto tal cual).
 - 1x cable USB micro-B a USB-A/C (según tu Raspberry Pi de destino).
-- Un teléfono con Bluetooth LE y una app tipo *nRF Connect for Mobile*
+- Un teléfono con Bluetooth **LE** y una app tipo *nRF Connect for Mobile*
   (Android/iOS) o *LightBlue*.
+
+> **Importante para pruebas desde una PC con Linux:** la PC necesita un
+> adaptador Bluetooth **4.0+ con soporte BLE**. Un dongle clásico
+> (Bluetooth 2.x, típicos CSR baratos) **no puede ver ni conectarse** a
+> dispositivos LE: el scan no muestra al Pico, `hcitool lescan` falla con
+> "Operation not permitted" y `gatttool connect` con
+> "Operation not supported (95)". Verificá con:
+> `hciconfig hci0 version` (necesitás HCI/LMP **4.0 o superior**).
+> Para un diagnóstico sin adaptador BLE, el estado interno del firmware se
+> puede verificar por SWD: `hci_stack->state == HCI_STATE_WORKING (2)` y
+> `le_advertisements_enabled_for_current_roles == 1` implican que el Pico
+> **está anunciando** (los paquetes ADV son visibles para cualquier
+> sniffer BLE y para teléfonos con LE).
 
 ## Compilación
 

@@ -28,6 +28,9 @@ compile_commands.json
 pioasm/
 picotool/
 
+# ---- Zips de distribución generados (los fuentes ya están versionados) ----
+scripts/pico-ble-keyboard-bridge.zip
+
 # ---- Editor / OS ----
 .vscode/
 .idea/
