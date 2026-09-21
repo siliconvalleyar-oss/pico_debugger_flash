@@ -39,7 +39,8 @@ distintas, y dominar el flujo completo:
 | Modo RESCUE (target colgado) | `./scripts/flash_rescue.sh` |
 | Instalar regla udev (una vez, con sudo) | `sudo ./scripts/install_udev.sh` |
 | Ver qué firmware tiene la sonda | `lsusb -v -d 2e8a:000c \| grep iProduct` |
-| Ver salida serial del target | `minicom -D /dev/ttyACM1 -b 115200` (con USB del target) |
+| Ver salida serial del target | `minicom -D /dev/ttyACM1 -b 115200` (con USB del target) o `/dev/ttyACM0` (UART del Debug Probe, sin cable extra — §8.5) |
+| Estado BTstack por SWD (advertising) | `ptype /o hci_stack_t` en gdb batch + `mdb` por OpenOCD — ver §8.4 |
 
 > Todos los scripts detectan automáticamente `PICO_SDK_PATH`, `OPENOCD_BIN`,
 > `OPENOCD_SCRIPTS` y `HIDAPI_LIB`. Cualquiera se sobre-escribe con variables de
@@ -233,3 +234,106 @@ la sonda; de lo contrario el nodo viejo conserva root:root.
 - Guía oficial "Getting Started with Raspberry Pi Pico-series" (RP-008276-DS-2)
 - Documentos hermanos de este repo: `docs/DEBUGPROBE_LEARNINGS.md`,
   `docs/PICO_DEBUGGER_GUIDE.md`, `docs/REPORT.md`
+
+---
+
+## 8. Lecciones de la sesión 2026-09-21: build multi-proyecto, target/ELF, BTstack, BLE y debug UART
+
+Lecciones pagadas con fallos reales al compilar y flashear dos proyectos
+convivientes (`keyboard_oled` y `pico-ble-keyboard-bridge`) con la misma
+cadena de scripts.
+
+### 8.1 Un solo script, muchos proyectos: inferir target y layout, NUNCA heredarlos
+
+- `config.sh` define `PROJECT_CMAKE_TARGET` para el `PROJECT` default. Si el
+  script de flash acepta una **carpeta por argumento** (distinta del default),
+  ese valor heredado **miente**: cada proyecto tiene su propio target
+  (`keyboard_oled → pico_keyboard_bridge`,
+  `pico-ble-keyboard-bridge → pico_ble_keyboard_bridge`).
+- Inferir SIEMPRE del `add_executable` del `CMakeLists.txt` del proyecto
+  seleccionado. Cuidado con dónde declara el target:
+  - `pico-ble-keyboard-bridge` lo declara en la **raíz**.
+  - `keyboard_oled` lo declara en **`src/CMakeLists.txt`** (vía
+    `add_subdirectory(src)`) → el ELF sale en `build/src/`, no en `build/`.
+- **Trampa `set -euo pipefail` + grep:** `VAR=$(grep ... | grep ...)` con
+  cero matches devuelve exit 1 y **mata el script en silencio** (sin mensaje,
+  EXIT=1). Los grep de inferencia van con `|| true`. Síntoma típico: el
+  script imprime el banner y muere sin error aparente.
+- Red de seguridad post-build: si el ELF esperado no existe, `find` en
+  `build/` antes de declarar "Build failed".
+
+### 8.2 BOARD del default vs BOARD del proyecto (pico_w obligatorio)
+
+- Los scripts con `BOARD=${BOARD:-pico}` **sobreescriben** el `set(PICO_BOARD
+  pico_w ...)` del CMakeLists del proyecto (el `-DPICO_BOARD=` de build.sh
+  gana sobre el cache). Para Pico W: **siempre `BOARD=pico_w` explícito**.
+- Síntoma de board equivocada: `fatal error: pico/cyw43_arch.h: No such file`
+  (la placa genérica no trae el radio CYW43).
+
+### 8.3 BTstack exige btstack_config.h y el header GATT se llama <nombre>.h
+
+- `btstack_config.h` **no es opcional** y se incluye por nombre exacto. Si el
+  proyecto no lo tiene: `fatal error: btstack_config.h: No such file`.
+  Receta: copiar `config/btstack_config.h` + `btstack_config_common.h` de un
+  proyecto conocido-bueno del mismo SDK (aquí: de `keyboard_oled`) y agregar
+  `config/` a `target_include_directories`. Recortar opciones no usadas
+  (sin SCO/Classic si el firmware es BLE-only).
+- `pico_btstack_make_gatt_header` genera `<nombre-sin-ext>.h`
+  (ej. `pico_kb_bridge.h`), **NO** `<nombre>.gatt.h`. Verificado compilando
+  `btstack/tool/compile_gatt.py <archivo>.gatt <salida>.h` a mano: además
+  confirma que el `.gatt` es válido y muestra los `*_HANDLE` reales que usa
+  el código.
+
+### 8.4 "El Pico no aparece en el scan BLE": verificar el firmware ANTES que el radio
+
+Orden de diagnóstico que funcionó (todo por SWD, sin tocar nada físico):
+
+1. ¿El firmware correcto está grabado? **Dos proyectos con el mismo banco
+   se pisan**: el último `flash_nosudo_multi.sh <otro>` deja el firmware
+   equivocado. Confirmar con el banner UART o el nombre del ELF flasheado
+   en el log del script.
+2. Estado BTstack leyendo RAM por OpenOCD (ELF con DWARF → `ptype /o` en
+   gdb batch para offsets, sin conexión gdb remota):
+   - `hci_stack_static.state == HCI_STATE_WORKING (2)`
+   - `le_advertisements_enabled_for_current_roles == 1`
+   - `le_advertisements_data_len == 19` y el buffer contiene
+     `02 01 06 | 0f 09 "Pico-KB-Bridge"`
+   - `le_advertisements_todo == 0` (sin tareas pendientes)
+   - BD_ADDR no nula/unicast (`x x x x x CD`)
+   → con eso, **el Pico está anunciando**: el problema está en el host.
+3. El host de la sesión tenía un dongle **CSR HCI/LMP 2.0 sin LE**
+   (`hciconfig hci0 version`; features octeto 6 sin bit LE): `hcitool lescan`
+   da "Operation not permitted" y `gatttool connect` da
+   "Operation not supported (95)". Un adaptador BR/EDR-only **jamás** verá
+   el advertising LE. Probar con un teléfono (BLE) o dongle BT 4.0+.
+
+### 8.5 Debug por UART a través del Debug Probe (CDC-ACM)
+
+- El Debug Probe expone **dos interfaces USB**: CMSIS-DAP (SWD) y un
+  **CDC-ACM `/dev/ttyACM0`** que puentea su header UART (3v3) — no hace
+  falta un USB-TTL aparte.
+- Cableado target: **GP0=TX, GP1=RX, GND** (cruzar con TX/RX de la sonda).
+- Firmware: `PICO_DEFAULT_UART=0`, `PICO_DEFAULT_UART_TX_PIN=0`,
+  `PICO_DEFAULT_UART_RX_PIN=1`, `PICO_DEFAULT_UART_BAUD_RATE=115200` +
+  `pico_enable_stdio_uart(1)`. Detalle: `keyboard_oled` tenía
+  `stdio_uart 0 / stdio_usb 1` — sin `stdio_uart 1` no hay logs.
+- Captura sincronizada al reset: `cat /dev/ttyACM0` en background +
+  OpenOCD `reset run` + `strings` del log.
+- Trampa de shell: `pkill -f "cat /dev/ttyACM0"` se mata a sí mismo si el
+  patrón está en la propia línea de comando (el `-f` matchea el cmdline del
+  shell lanzador). Usar el PID capturado con `$!`.
+- Cómo quedar los logs: boot + `[BLE] conexion LE entrante` +
+  `[SM] JUST_WORKS_REQUEST` + `[SM] PAIRING_COMPLETE OK` + `[ATT] write en
+  FFE1` — el ciclo BLE completo observable en vivo. Documento completo:
+  `pico-ble-keyboard-bridge/docs/DEBUG_UART.md`.
+
+### 8.6 Modo RESCUE oficial de OpenOCD (target "colgado")
+
+- El `debugprobe-openocd-rescue.cfg` del repo está roto con OpenOCD moderno
+  (`dap create -tap` sin tap creado → "-tap is invalid").
+- El `target/rp2040.cfg` upstream ya incluye modo rescue nativo:
+  `openocd -f interface/cmsis-dap.cfg -c "adapter usb vid_pid 0x2e8a 0x000c"
+  -c "set RESCUE 1" -f target/rp2040.cfg` — responde
+  `SWD DPIDR 0x10212927, DLPIDR 0xf0000001` y resetea el PSM dejando el
+  core halted en bootrom. Tras el rescue, el program normal vuelve a
+  conectar (relevante si el firmware vivo rompe el SWD).
