@@ -329,11 +329,19 @@ Orden de diagnóstico que funcionó (todo por SWD, sin tocar nada físico):
 
 ### 8.6 Modo RESCUE oficial de OpenOCD (target "colgado")
 
-- El `debugprobe-openocd-rescue.cfg` del repo está roto con OpenOCD moderno
-  (`dap create -tap` sin tap creado → "-tap is invalid").
-- El `target/rp2040.cfg` upstream ya incluye modo rescue nativo:
-  `openocd -f interface/cmsis-dap.cfg -c "adapter usb vid_pid 0x2e8a 0x000c"
-  -c "set RESCUE 1" -f target/rp2040.cfg` — responde
-  `SWD DPIDR 0x10212927, DLPIDR 0xf0000001` y resetea el PSM dejando el
-  core halted en bootrom. Tras el rescue, el program normal vuelve a
-  conectar (relevante si el firmware vivo rompe el SWD).
+- La implementación manual del `debugprobe-openocd-rescue.cfg` del repo
+  estaba rota con OpenOCD moderno (`dap create -tap` sin tap creado →
+  "-tap is invalid"). **Corregido (2026-09-21):** hoy es un wrapper fino
+  que solo hace `set RESCUE 1` + `source [find target/rp2040.cfg]` (con
+  `vid_pid` de la sonda), porque el rescue ya vive nativo en
+  `target/rp2040.cfg`.
+- El rescue nativo (`swd newdap` + `rescue_dap instance-id 0xf` + clear
+  DBGPWRUPREQ → reset del PSM) responde `SWD DPIDR 0x10212927,
+  DLPIDR 0xf0000001`, deja el core halted en bootrom y termina con
+  `shutdown`. Cuando imprime "Now restart OpenOCD without RESCUE flag",
+  reprogramar normal (`debugprobe-openocd.cfg` o `flash_nosudo_multi.sh`)
+  — relevante si el firmware vivo rompe el SWD.
+- Uso desde el repo: `source scripts/config.sh && "$OPENOCD_BIN" -s
+  "$OPENOCD_SCRIPTS" -f "$CONFIG_RESCUE_FILE"`.
+- Nota: el patrón roto original quedó como `test_rescue.cfg` (artefacto
+  histórico citado en `docs/REPORT.md`); ningún script lo consume.

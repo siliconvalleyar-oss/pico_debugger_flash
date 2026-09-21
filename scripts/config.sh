@@ -38,7 +38,10 @@ BUILD_DIR="${BUILD_DIR:-${PROJECT_DIR}/build}"
 ELF_FILE="${ELF_FILE:-${BUILD_DIR}/src/${PROJECT_CMAKE_TARGET}.elf}"
 UF2_FILE="${UF2_FILE:-${BUILD_DIR}/src/${PROJECT_CMAKE_TARGET}.uf2}"
 
-# Configuraciones de OpenOCD incluidas en el repo
+# Configuraciones de OpenOCD incluidas en el repo.
+# El rescue usa el modo nativo de target/rp2040.cfg (set RESCUE 1, leccion
+# 8.6 de docs/SKILL.md): cuando imprime "Now restart OpenOCD without RESCUE
+# flag", reprogramar con CONFIG_FILE normal.
 CONFIG_FILE="${CONFIG_FILE:-${REPO_ROOT}/debugprobe-openocd.cfg}"
 CONFIG_RESCUE_FILE="${CONFIG_RESCUE_FILE:-${REPO_ROOT}/debugprobe-openocd-rescue.cfg}"
 
