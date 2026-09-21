@@ -197,3 +197,4 @@ pico-ble-keyboard-bridge/
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): diagramas de arquitectura y flujo de datos.
 - [`docs/USAGE.md`](docs/USAGE.md): guía paso a paso de emparejamiento y comandos soportados.
+- [`docs/DEBUG_UART.md`](docs/DEBUG_UART.md): debug por UART (GP0/GP1) vía el puerto CDC-ACM del Debug Probe.

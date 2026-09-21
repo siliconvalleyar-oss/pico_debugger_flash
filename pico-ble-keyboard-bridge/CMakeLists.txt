@@ -45,6 +45,16 @@ target_link_libraries(pico_ble_keyboard_bridge PRIVATE
     pico_multicore
 )
 
+# Debug por UART (console stdio): UART0 con GP0=TX / GP1=RX @115200.
+# Estos pines son los que el Raspberry Pi Debug Probe expone como CDC-ACM
+# en su segundo puerto USB (ver docs/DEBUG_UART.md).
+target_compile_definitions(pico_ble_keyboard_bridge PRIVATE
+    PICO_DEFAULT_UART=0
+    PICO_DEFAULT_UART_TX_PIN=0
+    PICO_DEFAULT_UART_RX_PIN=1
+    PICO_DEFAULT_UART_BAUD_RATE=115200
+)
+
 # Salidas UF2 / ELF / etc.
 pico_add_extra_outputs(pico_ble_keyboard_bridge)
 

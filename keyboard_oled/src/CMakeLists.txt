@@ -24,6 +24,14 @@ target_include_directories(pico_keyboard_bridge PRIVATE
 pico_btstack_make_gatt_header(pico_keyboard_bridge PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/doorbell.gatt
     )
+# Console stdio por UART0 (GP0=TX, GP1=RX, 115200): se monitorea desde el
+# puerto CDC-ACM del Raspberry Pi Debug Probe (ver docs/DEBUG_UART.md).
+target_compile_definitions(pico_keyboard_bridge PRIVATE
+    PICO_DEFAULT_UART=0
+    PICO_DEFAULT_UART_TX_PIN=0
+    PICO_DEFAULT_UART_RX_PIN=1
+    PICO_DEFAULT_UART_BAUD_RATE=115200
+)
 pico_enable_stdio_usb(pico_keyboard_bridge 1)
-pico_enable_stdio_uart(pico_keyboard_bridge 0)
+pico_enable_stdio_uart(pico_keyboard_bridge 1)
 pico_add_extra_outputs(pico_keyboard_bridge)

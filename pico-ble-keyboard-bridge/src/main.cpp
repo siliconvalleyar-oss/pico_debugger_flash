@@ -16,12 +16,16 @@
 #include "pico/stdlib.h"
 #include "pico/cyw43_arch.h"
 #include "btstack.h"
+#include <cstdio>
 
 #include "usb_hid_keyboard.h"
 #include "ble_gatt_server.h"
 
 int main() {
     stdio_init_all();
+    // Console de debug por UART0 (GP0=TX, GP1=RX, 115200): en el banco se
+    // monitorea desde el puerto CDC-ACM del Raspberry Pi Debug Probe.
+    printf("\n=== Pico-KB-Bridge boot (uart0 GP0/GP1 @115200) ===\n");
 
     if (cyw43_arch_init()) {
         // Sin el radio CYW43 no hay BLE ni LED: no tiene sentido continuar.
@@ -32,6 +36,7 @@ int main() {
 
     usb_kbd_init();
     ble_gatt_server_init();
+    printf("[main] usb_kbd + ble_gatt_server inicializados\n");
 
     // btstack_run_loop_execute() es bloqueante en el modelo "estándar" de
     // BTstack, pero en el puerto de Pico (btstack_run_loop_embedded) puede

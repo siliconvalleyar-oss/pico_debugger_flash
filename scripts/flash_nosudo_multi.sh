@@ -105,12 +105,16 @@ BUILD_DIR="${PROJECT_DIR}/build"
 # pico_keyboard_bridge, pico-ble-keyboard-bridge -> pico_ble_keyboard_bridge).
 # Se infiere SIEMPRE del CMakeLists.txt del proyecto seleccionado (el valor
 # heredado de config.sh corresponde al PROJECT default, no a esta carpeta).
+# Los grep van con '|| true' porque con set -euo pipefail un grep sin matches
+# (exit 1) mata el script en silencio (p. ej. keyboard_oled declara el target
+# en src/CMakeLists.txt, no en la raíz).
 PROJECT_CMAKE_TARGET="$(grep -m1 -oE '^[[:space:]]*add_executable\([A-Za-z0-9_-]+' "${PROJECT_DIR}/CMakeLists.txt" \
-    2>/dev/null | grep -oE '[A-Za-z0-9_-]+$')"
-if [ -z "${PROJECT_CMAKE_TARGET}" ] && [ "${PROJECT}" = "keyboard_oled" ]; then
-    # keyboard_oled declara el target en src/CMakeLists.txt (via add_subdirectory)
+    2>/dev/null | grep -oE '[A-Za-z0-9_-]+$' || true)"
+if [ -z "${PROJECT_CMAKE_TARGET}" ]; then
+    # El proyecto declara el target en un CMakeLists de subdirectorio
+    # (keyboard_oled lo hace en src/, vía add_subdirectory)
     PROJECT_CMAKE_TARGET="$(grep -m1 -oE '^[[:space:]]*add_executable\([A-Za-z0-9_-]+' "${PROJECT_DIR}/src/CMakeLists.txt" \
-        2>/dev/null | grep -oE '[A-Za-z0-9_-]+$')"
+        2>/dev/null | grep -oE '[A-Za-z0-9_-]+$' || true)"
 fi
 [ -n "${PROJECT_CMAKE_TARGET}" ] || PROJECT_CMAKE_TARGET="${PROJECT}"
 # El layout de salida depende del proyecto: keyboard_oled escribe en build/src/
@@ -156,7 +160,7 @@ echo "############################################################"
 if [ ! -f "${ELF_FILE}" ]; then
     # Red de seguridad: buscar el ELF del target en cualquier layout de build
     # (el proyecto puede emitir en build/, build/src/, build/<subdir>/, ...)
-    FOUND_ELF="$(find "${BUILD_DIR}" -name "${PROJECT_CMAKE_TARGET}.elf" -print -quit 2>/dev/null)"
+    FOUND_ELF="$(find "${BUILD_DIR}" -name "${PROJECT_CMAKE_TARGET}.elf" -print -quit 2>/dev/null || true)"
     if [ -n "${FOUND_ELF}" ]; then
         ELF_FILE="${FOUND_ELF}"
         UF2_FILE="${ELF_FILE%.elf}.uf2"

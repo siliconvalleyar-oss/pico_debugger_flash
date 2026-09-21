@@ -105,6 +105,7 @@ int att_write_callback(hci_con_handle_t con_handle, uint16_t att_handle,
     (void)con_handle; (void)transaction_mode; (void)offset;
 
     if (att_handle == ATT_CHARACTERISTIC_0000FFE1_0000_1000_8000_00805F9B34FB_01_VALUE_HANDLE) {
+        printf("[ATT] write en FFE1, %u bytes\n", buffer_size);
         process_incoming_payload(buffer, buffer_size);
     }
     return 0; // 0 = ATT_ERROR_SUCCESS
@@ -120,11 +121,13 @@ void hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, 
     switch (event_type) {
         case BTSTACK_EVENT_STATE:
             if (btstack_event_state_get_state(packet) == HCI_STATE_WORKING) {
+                printf("[BLE] HCI_STATE_WORKING: radio listo, inicio advertising\n");
                 ble_gatt_server_start_advertising();
             }
             break;
 
         case HCI_EVENT_DISCONNECTION_COMPLETE:
+            printf("[BLE] desconexion (handle=0x%04x)\n", g_con_handle);
             g_con_handle = HCI_CON_HANDLE_INVALID;
             set_led(false);
             ble_gatt_server_start_advertising(); // volver a ser visible
@@ -134,8 +137,7 @@ void hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, 
             if (hci_event_le_meta_get_subevent_code(packet) ==
                 HCI_SUBEVENT_LE_CONNECTION_COMPLETE) {
                 g_con_handle = hci_subevent_le_connection_complete_get_connection_handle(packet);
-                // El LED se enciende recién cuando el bonding/encryption
-                // se confirma (ver evento SM), no en la mera conexión.
+                printf("[BLE] conexion LE entrante (handle=0x%04x)\n", g_con_handle);
             }
             break;
 
@@ -153,12 +155,17 @@ void sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, u
         case SM_EVENT_JUST_WORKS_REQUEST:
             // "Just Works": aceptamos automáticamente, sin pedir
             // confirmación de PIN (apto para uso doméstico/personal).
+            printf("[SM] JUST_WORKS_REQUEST: auto-aceptando\n");
             sm_just_works_confirm(sm_event_just_works_request_get_handle(packet));
             break;
 
         case SM_EVENT_PAIRING_COMPLETE:
             if (sm_event_pairing_complete_get_status(packet) == ERROR_CODE_SUCCESS) {
                 set_led(true); // conexión emparejada y encriptada: LED fijo
+                printf("[SM] PAIRING_COMPLETE OK: bondido+encriptado, LED ON\n");
+            } else {
+                printf("[SM] PAIRING_COMPLETE status=%u (FALLO)\n",
+                       sm_event_pairing_complete_get_status(packet));
             }
             break;
 
