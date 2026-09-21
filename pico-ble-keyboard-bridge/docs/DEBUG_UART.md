@@ -30,8 +30,16 @@ El firmware usa **UART0 del RP2040** como consola `stdio`:
 Cruzar TX↔RX (el TX de uno va al RX del otro) y **compartir GND**.
 La sonda alimenta la UART a 3,3 V — no conectar a RS-232 (±12 V lo daña).
 
-> El conector UART del Debug Probe es el header de 3 pines etiquetado
-> **UART** (no confundir con el de SWD: 3 pines con SWDIO/SWCLK/GND).
+> Los pines UART del **Debug Probe oficial** (header de 3 pines etiquetado
+> **UART**: TX/RX/GND) NO se usan aquí. Esta sonda es un **Pico normal con
+> `debugprobe_on_pico.uf2`**, así que sus pines UART (firmados por firmware)
+> son **GP4 = TX** y **GP5 = RX**:
+>
+> | Conectar | Pines físicos |
+> |---|---|
+> | Sonda **GP5 (UART RX)** → Target **GP0 (UART0 TX)** | cruce TX↔RX |
+> | Sonda **GP4 (UART TX)** → Target **GP1 (UART0 RX)** | cruce TX↔RX |
+> | GND → GND | comunes |
 
 ## Configuración del firmware
 
@@ -104,7 +112,19 @@ Eventos posteriores (al conectar/emparejar desde el teléfono):
 
 ```
 Pico KB Bridge started
+[BLE] HCI_STATE_WORKING: radio lista, MAC 28:CD:C1:04:E6:7D
+[dbg] name=Pico-KB-Bridge mac=28:CD:C1:04:E6:7D bt=0 peers=0   <- cada ~2 s
+// al conectar un dispositivo desde el telefono:
+[BLE] conexion LE (handle=0x0000) peer=AA:BB:CC:DD:EE:FF
+[dbg] name=Pico-KB-Bridge mac=28:CD:C1:04:E6:7D bt=1 peers=1
 ```
+
+El `[dbg]` periódico sale aunque no haya conexión BLE: sirve para
+confirmar rápido que el cableado UART está bien (algo aparece siempre),
+y el `[BLE] HCI_STATE_WORKING` confirma que la radio llegó a working y
+por tanto que el OLED ya puede mostrar el MAC. El `peer=` del evento de
+conexión es el dispositivo que entra al historial que muestra el OLED
+(página "Dispositivos", ver `keyboard_oled/docs/OLED_DISPLAY.md`).
 
 ## Solución de problemas
 

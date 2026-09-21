@@ -36,7 +36,7 @@ distintas, y dominar el flujo completo:
 | Solo compilar | `BOARD=<board> ./scripts/build.sh` |
 | Compilar + programar (con sudo) | `./scripts/build_and_program.sh` |
 | Programar un build ya hecho (con sudo) | `./scripts/program.sh` |
-| Modo RESCUE (target colgado) | `./scripts/flash_rescue.sh` |
+| Modo RESCUE (target colgado) | `./scripts/flash_rescue.sh [proyecto]` (rescue + reprogramar; `--rescue-only` para solo rescue) |
 | Instalar regla udev (una vez, con sudo) | `sudo ./scripts/install_udev.sh` |
 | Ver qué firmware tiene la sonda | `lsusb -v -d 2e8a:000c \| grep iProduct` |
 | Ver salida serial del target | `minicom -D /dev/ttyACM1 -b 115200` (con USB del target) o `/dev/ttyACM0` (UART del Debug Probe, sin cable extra — §8.5) |
@@ -341,7 +341,34 @@ Orden de diagnóstico que funcionó (todo por SWD, sin tocar nada físico):
   `shutdown`. Cuando imprime "Now restart OpenOCD without RESCUE flag",
   reprogramar normal (`debugprobe-openocd.cfg` o `flash_nosudo_multi.sh`)
   — relevante si el firmware vivo rompe el SWD.
-- Uso desde el repo: `source scripts/config.sh && "$OPENOCD_BIN" -s
+- Uso desde el repo: `./scripts/flash_rescue.sh [proyecto]` (creado el
+  2026-09-21: fase 1 rescue con `CONFIG_RESCUE_FILE`, fase 2 delega en
+  `flash_nosudo_multi.sh`; `--rescue-only` omite la fase 2). A mano:
+  `source scripts/config.sh && "$OPENOCD_BIN" -s
   "$OPENOCD_SCRIPTS" -f "$CONFIG_RESCUE_FILE"`.
 - Nota: el patrón roto original quedó como `test_rescue.cfg` (artefacto
   histórico citado en `docs/REPORT.md`); ningún script lo consume.
+
+### 8.7 "El teléfono conecta pero nunca paira": falta el Security Request
+
+- Síntoma real: el teléfono ve al periférico, conecta, pero el pairing no
+  arranca (FFE1 inaccesible sin encriptación) — y ni `SM_AUTHREQ_BONDING`
+  ni "Just Works" disparan nada por sí solos.
+- Causa: **muchos teléfonos no inician el emparejamiento por su cuenta**
+  al conectar; esperan que el periférico lo pida. Sin petición, quedan
+  conectados sin bond para siempre.
+- Fix (validado en el banco, 2026-09-21): al recibir
+  `HCI_SUBEVENT_LE_CONNECTION_COMPLETE` llamar
+  `sm_send_security_request(g_con_handle)` — el periférico pide pairing
+  apenas conectan. En `ble_gatt_server.cpp` de `pico-ble-keyboard-bridge`.
+- Acompañante: **no exigir `SM_AUTHREQ_SECURE_CONNECTION`** duro en
+  `sm_set_authentication_requirements` — solo `SM_AUTHREQ_BONDING`. El SM
+  de BTstack igual negocia Secure Connections si el peer lo soporta;
+  exigirlo rechaza intentos que podrían completar (fallback legacy muerto).
+- Diagnóstico cuando la UART calla (la CDC del probe pierde ráfagas):
+  leer `g_con_handle` por SWD. `0xFFFF` (HCI_CON_HANDLE_INVALID) = sin
+  conexión; **`0x0000` es un handle válido** (¡no es "sin conexión"!) —
+  con conexión viva y sin eventos `[SM]` en el log, el pairing es el
+  problema, no el link.
+- Resultado verificado: `PAIRING_COMPLETE OK` (LED fijo) + write en FFE1
+  tipeado por USB — la cadena completa end-to-end funcionando.

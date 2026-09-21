@@ -138,6 +138,10 @@ void hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, 
                 HCI_SUBEVENT_LE_CONNECTION_COMPLETE) {
                 g_con_handle = hci_subevent_le_connection_complete_get_connection_handle(packet);
                 printf("[BLE] conexion LE entrante (handle=0x%04x)\n", g_con_handle);
+                // Security Request explicito: muchos phones no inician el
+                // emparejamiento por si solos al conectar; sin este request
+                // se quedan conectados sin pairar y FFE1 queda bloqueado.
+                sm_send_security_request(g_con_handle);
             }
             break;
 
@@ -181,10 +185,12 @@ void ble_gatt_server_init(void) {
     sm_init();
 
     // Bonding obligatorio + "Just Works" (sin requerir teclado/pantalla
-    // en el dispositivo remoto). LE Secure Connections cuando el
-    // dispositivo remoto lo soporte.
+    // en el dispositivo remoto). SIN SM_AUTHREQ_SECURE_CONNECTION duro:
+    // se acepta tambien legacy pairing; el SM igual negocia Secure
+    // Connections si el peer lo soporta (exigir SC puro hacia fallar el
+    // pairing con varios phones).
     sm_set_io_capabilities(IO_CAPABILITY_NO_INPUT_NO_OUTPUT);
-    sm_set_authentication_requirements(SM_AUTHREQ_BONDING | SM_AUTHREQ_SECURE_CONNECTION);
+    sm_set_authentication_requirements(SM_AUTHREQ_BONDING);
 
     att_server_init(profile_data, nullptr, att_write_callback);
 
