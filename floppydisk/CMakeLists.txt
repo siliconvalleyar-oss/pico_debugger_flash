@@ -59,6 +59,6 @@ target_link_libraries(floppydisk
 )
 
 pico_enable_stdio_uart(floppydisk 1)
-pico_enable_stdio_usb(floppydisk 0)
+pico_enable_stdio_usb(floppydisk 1)
 
 pico_add_extra_outputs(floppydisk)
