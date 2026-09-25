@@ -234,7 +234,7 @@ void sd_test_read_block0(uint8_t *buf, char *output, size_t out_len) {
     r = sd_cmd(17, addr, 0);
     pos += snprintf(output + pos, out_len - pos, "CMD17=0x%02x ", r);
     if (r == 0x00) {
-        for (int i = 0; i < 256; i++) {
+        for (int i = 0; i < 512; i++) {
             uint8_t tok = xchg(0xFF);
             if (tok == 0xFE) {
                 pos += snprintf(output + pos, out_len - pos, "token@%d ", i);

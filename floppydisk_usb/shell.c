@@ -251,6 +251,7 @@ void shell_init(void) {
     shell_register_cmd("dump", shell_dump_cmd, "Dump bloques de imagen (base ext [block] [count])");
     shell_register_cmd("hex", shell_hex_cmd, "Hex dump imagen (base ext offset [len])");
     shell_register_cmd("sdtest", shell_sdtest_cmd, "Test directo SD card SPI");
+    shell_register_cmd("sdinit", shell_sdinit_cmd, "Test solo sd_init con debug");
     shell_prompt();
 }
 

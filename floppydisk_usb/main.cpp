@@ -5,6 +5,17 @@
 
 int main(void) {
     stdio_init_all();
+    
+    /* Quick LED blink to show we're alive */
+    gpio_init(PICO_DEFAULT_LED_PIN);
+    gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
+    for (int i = 0; i < 3; i++) {
+        gpio_put(PICO_DEFAULT_LED_PIN, 1);
+        busy_wait_ms(100);
+        gpio_put(PICO_DEFAULT_LED_PIN, 0);
+        busy_wait_ms(100);
+    }
+    
     ssd1306_init();
     shell_init();
 

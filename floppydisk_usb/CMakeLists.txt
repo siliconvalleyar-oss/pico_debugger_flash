@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.13)
 
 # =============================================================================
 # floppydisk_usb - Lectora/grabadora de disquetes 3.5" con USB/UART shell
-#                  basada en Raspberry Pi Pico 2 W
+#                  basada en Raspberry Pi Pico (RP2040)
 #
 #   Funciones:
 #     - LEER  un disquete real (interfaz de 34 pines) y guardarlo como imagen
@@ -10,7 +10,7 @@ cmake_minimum_required(VERSION 3.13)
 #     - ESCRIBIR una imagen .ima de la microSD en un disquete real
 #     - SHELL  USB/UART interactivo para debug y comandos
 #
-#   Hardware objetivo: Raspberry Pi Pico 2 W (RP2350, 150 MHz, 520 KB SRAM)
+#   Hardware objetivo: Raspberry Pi Pico (RP2040, 133 MHz, 264 KB SRAM)
 #   Disquetera:        interfaz Shugart de 34 pines conectada a GPIO
 #   Almacenamiento:    microSD FAT32 por SPI
 #   Display:           OLED SSD1306 128x64 por I2C
@@ -25,7 +25,7 @@ if(NOT EXISTS "${PICO_SDK_PATH}/pico_sdk_init.cmake")
 endif()
 
 if(NOT PICO_BOARD)
-    set(PICO_BOARD pico2_w)
+    set(PICO_BOARD pico)
 endif()
 
 include(pico_sdk_import.cmake)
