@@ -1,6 +1,7 @@
 /* shell.c - USB/UART command shell implementation */
 #include "shell.h"
 #include "app.h"
+#include "fat.h"
 
 #include "pico/stdio.h"
 #include "pico/stdlib.h"
@@ -92,6 +93,109 @@ static void shell_version_cmd(int argc, char **argv) {
     shell_print("Commit: %s\r\n", FLOPPYDISK_COMMIT);
 }
 
+static void shell_fat_cmd(int argc, char **argv) {
+    (void)argc; (void)argv;
+    if (!app_fat_ok()) {
+        shell_print("FAT: SD no montada\r\n");
+        return;
+    }
+    shell_print("FAT: OK  Libre=%lu KB  Total=%lu KB\r\n", (unsigned long)app_fat_free_kb(), (unsigned long)app_fat_total_kb());
+}
+
+static void shell_ls_cmd(int argc, char **argv) {
+    (void)argc; (void)argv;
+    if (!app_fat_ok()) {
+        shell_print("FAT: SD no montada\r\n");
+        return;
+    }
+    fat_scan_entry_t list[32];
+    int n = app_fat_list_images(list, 32);
+    shell_print("Imagenes en /IMG (%d):\r\n", n);
+    for (int i = 0; i < n; i++) {
+        shell_print("  %s.%s  %lu bytes\r\n", list[i].name8, list[i].ext4, (unsigned long)list[i].size);
+    }
+}
+
+static void shell_dump_cmd(int argc, char **argv) {
+    if (argc < 3) {
+        shell_print("Uso: dump <base8> <ext> [bloque] [cuantos]\r\n");
+        shell_print("Ej:  dump DISK0001 IMA 0 10\r\n");
+        return;
+    }
+    const char *base = argv[1];
+    const char *ext = argv[2];
+    uint32_t start_block = 0;
+    uint32_t count = 16;
+    if (argc > 3) start_block = strtoul(argv[3], NULL, 0);
+    if (argc > 4) count = strtoul(argv[4], NULL, 0);
+    
+    uint32_t img_size = app_fat_image_size(base, ext);
+    if (img_size == 0) {
+        shell_print("Imagen no encontrada: %s.%s\r\n", base, ext);
+        return;
+    }
+    shell_print("Dumping %s.%s  size=%lu bytes  blocks=%lu\r\n", base, ext, (unsigned long)img_size, (unsigned long)(img_size / 512));
+    
+    uint8_t buf[512];
+    for (uint32_t i = 0; i < count; i++) {
+        uint32_t blk = start_block + i;
+        if (blk * 512 >= img_size) break;
+        if (!app_fat_read_image_block(base, ext, blk, buf)) {
+            shell_print("  Error leyendo bloque %lu\r\n", (unsigned long)blk);
+            break;
+        }
+        shell_print("  Block %04lu: ", (unsigned long)blk);
+        for (int j = 0; j < 32; j++) {
+            shell_print("%02x ", buf[j]);
+        }
+        shell_print("...\r\n");
+    }
+}
+
+static void shell_hex_cmd(int argc, char **argv) {
+    if (argc < 3) {
+        shell_print("Uso: hex <base8> <ext> <offset> [len]\r\n");
+        shell_print("Ej:  hex DISK0001 IMA 0 256\r\n");
+        return;
+    }
+    const char *base = argv[1];
+    const char *ext = argv[2];
+    uint32_t offset = strtoul(argv[3], NULL, 0);
+    uint32_t len = 256;
+    if (argc > 4) len = strtoul(argv[4], NULL, 0);
+    
+    uint32_t img_size = app_fat_image_size(base, ext);
+    if (img_size == 0) {
+        shell_print("Imagen no encontrada: %s.%s\r\n", base, ext);
+        return;
+    }
+    if (offset >= img_size) {
+        shell_print("Offset fuera de rango\r\n");
+        return;
+    }
+    if (offset + len > img_size) len = img_size - offset;
+    
+    shell_print("Hex dump %s.%s  offset=%lu  len=%lu\r\n", base, ext, (unsigned long)offset, (unsigned long)len);
+    
+    uint8_t buf[512];
+    uint32_t start_block = offset / 512;
+    uint32_t end_block = (offset + len + 511) / 512;
+    uint32_t pos = 0;
+    
+    for (uint32_t blk = start_block; blk < end_block; blk++) {
+        if (!app_fat_read_image_block(base, ext, blk, buf)) break;
+        uint32_t start = (blk == start_block) ? (offset % 512) : 0;
+        uint32_t end = (blk == end_block - 1) ? ((offset + len) % 512) : 512;
+        if (end == 0) end = 512;
+        
+        for (uint32_t i = start; i < end && pos < len; i++, pos++) {
+            if (pos % 16 == 0) shell_print("\r\n%04lx: ", (unsigned long)(offset + pos));
+            shell_print("%02x ", buf[i]);
+        }
+    }
+    shell_print("\r\n");
+}
+
 void shell_register_cmd(const char *name, void (*fn)(int argc, char **argv), const char *help) {
     if (s_cmd_count >= SHELL_MAX_CMDS) return;
     s_cmds[s_cmd_count].name = name;
@@ -106,6 +210,10 @@ void shell_init(void) {
     shell_register_cmd("echo", shell_echo_cmd, "Activar/desactivar echo (on|off)");
     shell_register_cmd("reboot", shell_reboot_cmd, "Reiniciar la Pico");
     shell_register_cmd("version", shell_version_cmd, "Mostrar version y build");
+    shell_register_cmd("fat", shell_fat_cmd, "Info sistema de archivos FAT");
+    shell_register_cmd("ls", shell_ls_cmd, "Listar imagenes en /IMG");
+    shell_register_cmd("dump", shell_dump_cmd, "Dump bloques de imagen (base ext [block] [count])");
+    shell_register_cmd("hex", shell_hex_cmd, "Hex dump imagen (base ext offset [len])");
     shell_prompt();
 }
 

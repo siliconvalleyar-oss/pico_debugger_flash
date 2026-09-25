@@ -629,3 +629,38 @@ void app_run(void) {
         busy_wait_ms(40);
     }
 }
+
+/* FAT access for shell */
+bool app_fat_ok(void) {
+    return g_sd_ok;
+}
+
+uint32_t app_fat_free_kb(void) {
+    if (!g_sd_ok) return 0;
+    uint32_t free = fat_get_free_clusters(&g_vol);
+    return (free * g_vol.spc * g_vol.bps) / 1024;
+}
+
+uint32_t app_fat_total_kb(void) {
+    if (!g_sd_ok) return 0;
+    return (g_vol.total_sectors * g_vol.bps) / 1024;
+}
+
+int app_fat_list_images(fat_scan_entry_t *out, int maxn) {
+    if (!g_sd_ok) return 0;
+    return fat_scan_img(&g_vol, out, maxn);
+}
+
+bool app_fat_read_image_block(const char *base8, const char *ext3, uint32_t block_idx, uint8_t *buf) {
+    if (!g_sd_ok) return false;
+    fat_file_t f;
+    if (!fat_open_img(&g_vol, base8, ext3, &f, NULL, 0)) return false;
+    return fat_read_block(&f, block_idx, buf);
+}
+
+uint32_t app_fat_image_size(const char *base8, const char *ext3) {
+    if (!g_sd_ok) return 0;
+    fat_file_t f;
+    if (!fat_open_img(&g_vol, base8, ext3, &f, NULL, 0)) return 0;
+    return f.size;
+}
