@@ -62,7 +62,7 @@
 #define SD_MISO_PIN 12
 #define SD_CS_PIN 13
 #define SD_INIT_BAUD 400000   /* init clock (SCK)                              */
-#define SD_RUN_BAUD 12500000  /* run-time clock (12.5 MHz for better SDSC compat) */
+#define SD_RUN_BAUD 25000000  /* run-time clock                                */
 
 /* ------------------------------------------------------------- Formats ----- */
 #define FLOPPY_HEADS 2
