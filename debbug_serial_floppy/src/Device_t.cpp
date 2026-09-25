@@ -309,6 +309,14 @@ int Device_t::runInteractive() {
     usleep(500000);  // 500ms para estabilizar USB CDC
     readLine(1000);  // Descarta cualquier dato inicial
 
+    // Mostrar menú de comandos disponibles del firmware (ejecutar 'help')
+    std::cout << "\033[1;36m=== Comandos disponibles en el firmware ===\033[0m\n";
+    auto lines = sendCommand("help");
+    for (const auto& line : lines) {
+        std::cout << line << "\n";
+    }
+    std::cout << "\033[1;36m============================================\033[0m\n\n";
+
     std::string input;
     while (true) {
         std::cout << "\033[1;32mpico>\033[0m ";
