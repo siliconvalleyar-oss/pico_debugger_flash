@@ -1,5 +1,6 @@
 /* shell.c - USB/UART command shell implementation */
 #include "shell.h"
+#include "app.h"
 
 #include "pico/stdio.h"
 #include "pico/stdlib.h"
@@ -85,6 +86,12 @@ static void shell_reboot_cmd(int argc, char **argv) {
     watchdog_reboot(0, 0, 0);
 }
 
+static void shell_version_cmd(int argc, char **argv) {
+    (void)argc; (void)argv;
+    shell_print("floppydisk_usb %s (build %lu)\r\n", app_get_version_str(), (unsigned long)app_get_build_num());
+    shell_print("Commit: %s\r\n", FLOPPYDISK_COMMIT_STR);
+}
+
 void shell_register_cmd(const char *name, void (*fn)(int argc, char **argv), const char *help) {
     if (s_cmd_count >= SHELL_MAX_CMDS) return;
     s_cmds[s_cmd_count].name = name;
@@ -98,6 +105,7 @@ void shell_init(void) {
     shell_register_cmd("help", shell_help, "Mostrar esta ayuda");
     shell_register_cmd("echo", shell_echo_cmd, "Activar/desactivar echo (on|off)");
     shell_register_cmd("reboot", shell_reboot_cmd, "Reiniciar la Pico");
+    shell_register_cmd("version", shell_version_cmd, "Mostrar version y build");
     shell_prompt();
 }
 

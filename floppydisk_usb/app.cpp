@@ -1,4 +1,5 @@
 #include "app.h"
+#include "version.h"
 
 #include "config.h"
 #include "cfg.h"
@@ -16,6 +17,31 @@
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
+
+static const char* g_version_str = FLOPPYDISK_VERSION_STR;
+static uint32_t g_build_num = FLOPPYDISK_BUILD_NUM;
+
+const char* app_get_version_str(void) {
+    return g_version_str;
+}
+
+uint32_t app_get_build_num(void) {
+    return g_build_num;
+}
+
+void app_show_version(void) {
+    char line1[22], line2[22], line3[22];
+    snprintf(line1, sizeof(line1), "FLOPPYDISK USB");
+    snprintf(line2, sizeof(line2), "v%s", g_version_str);
+    snprintf(line3, sizeof(line3), "build %lu", (unsigned long)g_build_num);
+    ssd1306_clear();
+    ssd1306_puts(1, 0, line1);
+    ssd1306_puts(1, 2, line2);
+    ssd1306_puts(1, 3, line3);
+    ssd1306_puts(1, 5, "Iniciando...");
+    ssd1306_flush();
+    busy_wait_ms(1500);
+}
 
 /* ================================================================== state === */
 
@@ -547,6 +573,7 @@ static bool g_app_initialized = false;
 void app_run(void) {
     if (!g_app_initialized) {
         setup_gpio();
+        app_show_version();
         init_storage();
         draw_menu();
         g_app_initialized = true;

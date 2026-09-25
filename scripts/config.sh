@@ -15,20 +15,17 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
 
 # Directorios clave del proyecto.
-# Se elige el firmware con PROJECT (default: pico_usb_drive_configurable).
-# En esta rama (pendrive_config_oled) la carpeta del proyecto es
-# usb_oled_drive_configurable, pero el target CMake sigue siendo
-# pico_usb_drive_configurable (project() en su CMakeLists.txt).
-# Se elige el firmware con PROJECT. El nombre de la CARPETA del proyecto
-# puede diferir del nombre del TARGET CMake: usb_oled_drive_configurable/
-# contiene el proyecto OLED cuyo CMake crea "pico_usb_drive_configurable".
-PROJECT="${PROJECT:-keyboard_oled}"
+# Se elige el firmware con PROJECT (default: floppydisk_usb).
+PROJECT="${PROJECT:-floppydisk_usb}"
 # El caso especial de target SOLO aplica cuando PROJECT=keyboard_oled, para
 # no filtrar el target de keyboard_oled a los demás proyectos
 # (p. ej. pico-ble-keyboard-bridge usa su propio target pico_ble_keyboard_bridge).
 if [ "${PROJECT}" = "keyboard_oled" ] && [ -d "${REPO_ROOT}/keyboard_oled" ]; then
     PROJECT_DIR="${PROJECT_DIR:-${REPO_ROOT}/keyboard_oled}"
     PROJECT_CMAKE_TARGET="pico_keyboard_bridge"
+elif [ "${PROJECT}" = "floppydisk_usb" ] && [ -d "${REPO_ROOT}/floppydisk_usb" ]; then
+    PROJECT_DIR="${PROJECT_DIR:-${REPO_ROOT}/floppydisk_usb}"
+    PROJECT_CMAKE_TARGET="floppydisk_usb"
 else
     PROJECT_DIR="${PROJECT_DIR:-${REPO_ROOT}/${PROJECT}}"
     PROJECT_CMAKE_TARGET="${PROJECT}"
