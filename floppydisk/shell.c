@@ -4,6 +4,7 @@
 #include "pico/stdio.h"
 #include "pico/stdlib.h"
 #include "hardware/uart.h"
+#include "hardware/watchdog.h"
 
 #include <stdarg.h>
 #include <stdbool.h>
