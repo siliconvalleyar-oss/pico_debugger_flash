@@ -3,6 +3,7 @@
 #include "hardware/gpio.h"
 #include "hardware/spi.h"
 #include "pico/stdlib.h"
+#include <stdio.h>
 
 #include "config.h"
 
