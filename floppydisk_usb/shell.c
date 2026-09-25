@@ -8,6 +8,9 @@
 #include "pico/stdlib.h"
 #include "hardware/uart.h"
 #include "hardware/watchdog.h"
+#include "hardware/spi.h"
+#include "hardware/gpio.h"
+#include "config.h"
 
 #include <stdarg.h>
 #include <stdbool.h>
@@ -240,19 +243,184 @@ void shell_register_cmd(const char *name, void (*fn)(int argc, char **argv), con
     s_cmd_count++;
 }
 
+static void shell_sdinit_cmd(int argc, char **argv) {
+    (void)argc; (void)argv;
+    shell_print("SD SPI Init Debug...\r\n");
+    shell_print("  Pins: SCK=GP10 MOSI=GP11 MISO=GP12 CS=GP13\r\n");
+    
+    shell_print("  spi_init(SD_SPI, 400000)...\r\n");
+    spi_init(SD_SPI, 400000);
+    gpio_set_function(10, GPIO_FUNC_SPI);
+    gpio_set_function(11, GPIO_FUNC_SPI);
+    gpio_set_function(12, GPIO_FUNC_SPI);
+    gpio_init(13);
+    gpio_set_dir(13, GPIO_OUT);
+    gpio_put(13, 1);
+    shell_print("  GPIO configured\r\n");
+    
+    shell_print("  Dummy clocks (80)...\r\n");
+    uint8_t dummy = 0xFF;
+    for (int i = 0; i < 10; i++) {
+        spi_write_read_blocking(SD_SPI, &dummy, &dummy, 1);
+    }
+    gpio_put(13, 0);
+    spi_write_read_blocking(SD_SPI, &dummy, &dummy, 1);
+    gpio_put(13, 1);
+    shell_print("  CS toggled\r\n");
+    
+    shell_print("  CMD0 (GO_IDLE_STATE)...\r\n");
+    uint8_t cmd0_buf[6] = {0x40, 0,0,0,0, 0x95};
+    for (int attempt = 0; attempt < 10; attempt++) {
+        gpio_put(13, 0);
+        spi_write_blocking(SD_SPI, cmd0_buf, 6);
+        for (int i = 0; i < 8; i++) {
+            uint8_t r;
+            spi_write_read_blocking(SD_SPI, &dummy, &r, 1);
+            if ((r & 0x80) == 0) {
+                shell_print("  CMD0 OK on attempt %d, R1=0x%02x\r\n", attempt+1, r);
+                gpio_put(13, 1);
+                goto cmd0_done;
+            }
+        }
+        gpio_put(13, 1);
+        busy_wait_ms(10);
+    }
+    shell_print("  CMD0 FAILED\r\n");
+    return;
+cmd0_done:
+    
+    shell_print("  CMD8 (SEND_IF_COND)...\r\n");
+    uint8_t cmd8_buf[6] = {0x48, 0,0,0x01,0xAA, 0x87};
+    gpio_put(13, 0);
+    spi_write_blocking(SD_SPI, cmd8_buf, 6);
+    for (int i = 0; i < 8; i++) {
+        uint8_t r;
+        spi_write_read_blocking(SD_SPI, &dummy, &r, 1);
+        if ((r & 0x80) == 0) {
+            uint8_t r7[4];
+            for (int j = 0; j < 4; j++) spi_write_read_blocking(SD_SPI, &dummy, &r7[j], 1);
+            shell_print("  CMD8 OK, R1=0x%02x, R7=0x%02x%02x%02x%02x\r\n", r, r7[0], r7[1], r7[2], r7[3]);
+            gpio_put(13, 1);
+            goto cmd8_done;
+        }
+    }
+    gpio_put(13, 1);
+    shell_print("  CMD8 FAILED (not v2 SD)\r\n");
+cmd8_done:
+    
+    shell_print("  ACMD41 (APP_SEND_OP_COND) with HCS=1...\r\n");
+    for (int attempt = 0; attempt < 100; attempt++) {
+        gpio_put(13, 0);
+        uint8_t cmd55_buf[6] = {0x77, 0,0,0,0, 0xFF};
+        spi_write_blocking(SD_SPI, cmd55_buf, 6);
+        for (int i = 0; i < 8; i++) {
+            spi_write_read_blocking(SD_SPI, &dummy, &dummy, 1);
+        }
+        uint8_t acmd41_buf[6] = {0x69, 0x40,0,0,0, 0xFF};
+        spi_write_blocking(SD_SPI, acmd41_buf, 6);
+        uint8_t r1;
+        for (int i = 0; i < 8; i++) {
+            spi_write_read_blocking(SD_SPI, &dummy, &r1, 1);
+            if ((r1 & 0x80) == 0) break;
+        }
+        gpio_put(13, 1);
+        if ((r1 & 0x80) == 0) {
+            shell_print("  ACMD41 OK on attempt %d, R1=0x%02x\r\n", attempt+1, r1);
+            break;
+        }
+        busy_wait_ms(10);
+    }
+    shell_print("  Init sequence done\r\n");
+}
+
 void shell_init(void) {
-    stdio_init_all();
-    shell_register_cmd("help", shell_help, "Mostrar esta ayuda");
-    shell_register_cmd("echo", shell_echo_cmd, "Activar/desactivar echo (on|off)");
-    shell_register_cmd("reboot", shell_reboot_cmd, "Reiniciar la Pico");
-    shell_register_cmd("version", shell_version_cmd, "Mostrar version y build");
-    shell_register_cmd("fat", shell_fat_cmd, "Info sistema de archivos FAT");
-    shell_register_cmd("ls", shell_ls_cmd, "Listar imagenes en /IMG");
-    shell_register_cmd("dump", shell_dump_cmd, "Dump bloques de imagen (base ext [block] [count])");
-    shell_register_cmd("hex", shell_hex_cmd, "Hex dump imagen (base ext offset [len])");
-    shell_register_cmd("sdtest", shell_sdtest_cmd, "Test directo SD card SPI");
-    shell_register_cmd("sdinit", shell_sdinit_cmd, "Test solo sd_init con debug");
-    shell_prompt();
+    (void)argc; (void)argv;
+    shell_print("SD SPI Init Debug...\r\n");
+    shell_print("  Pins: SCK=GP10 MOSI=GP11 MISO=GP12 CS=GP13\r\n");
+    
+    shell_print("  spi_init(SD_SPI, 400000)...\r\n");
+    spi_init(SD_SPI, 400000);
+    gpio_set_function(10, GPIO_FUNC_SPI);
+    gpio_set_function(11, GPIO_FUNC_SPI);
+    gpio_set_function(12, GPIO_FUNC_SPI);
+    gpio_init(13);
+    gpio_set_dir(13, GPIO_OUT);
+    gpio_put(13, 1);
+    shell_print("  GPIO configured\r\n");
+    
+    shell_print("  Dummy clocks (80)...\r\n");
+    uint8_t dummy = 0xFF;
+    for (int i = 0; i < 10; i++) {
+        spi_write_read_blocking(SD_SPI, &dummy, &dummy, 1);
+    }
+    gpio_put(13, 0);
+    spi_write_read_blocking(SD_SPI, &dummy, &dummy, 1);
+    gpio_put(13, 1);
+    shell_print("  CS toggled\r\n");
+    
+    shell_print("  CMD0 (GO_IDLE_STATE)...\r\n");
+    uint8_t cmd0_buf[6] = {0x40, 0,0,0,0, 0x95};
+    for (int attempt = 0; attempt < 10; attempt++) {
+        gpio_put(13, 0);
+        spi_write_blocking(SD_SPI, cmd0_buf, 6);
+        for (int i = 0; i < 8; i++) {
+            uint8_t r;
+            spi_write_read_blocking(SD_SPI, &dummy, &r, 1);
+            if ((r & 0x80) == 0) {
+                shell_print("  CMD0 OK on attempt %d, R1=0x%02x\r\n", attempt+1, r);
+                gpio_put(13, 1);
+                goto cmd0_done;
+            }
+        }
+        gpio_put(13, 1);
+        busy_wait_ms(10);
+    }
+    shell_print("  CMD0 FAILED\r\n");
+    return;
+cmd0_done:
+    
+    shell_print("  CMD8 (SEND_IF_COND)...\r\n");
+    uint8_t cmd8_buf[6] = {0x48, 0,0,0x01,0xAA, 0x87};
+    gpio_put(13, 0);
+    spi_write_blocking(SD_SPI, cmd8_buf, 6);
+    for (int i = 0; i < 8; i++) {
+        uint8_t r;
+        spi_write_read_blocking(SD_SPI, &dummy, &r, 1);
+        if ((r & 0x80) == 0) {
+            uint8_t r7[4];
+            for (int j = 0; j < 4; j++) spi_write_read_blocking(SD_SPI, &dummy, &r7[j], 1);
+            shell_print("  CMD8 OK, R1=0x%02x, R7=0x%02x%02x%02x%02x\r\n", r, r7[0], r7[1], r7[2], r7[3]);
+            gpio_put(13, 1);
+            goto cmd8_done;
+        }
+    }
+    gpio_put(13, 1);
+    shell_print("  CMD8 FAILED (not v2 SD)\r\n");
+cmd8_done:
+    
+    shell_print("  ACMD41 (APP_SEND_OP_COND) with HCS=1...\r\n");
+    for (int attempt = 0; attempt < 100; attempt++) {
+        gpio_put(13, 0);
+        uint8_t cmd55_buf[6] = {0x77, 0,0,0,0, 0xFF};
+        spi_write_blocking(SD_SPI, cmd55_buf, 6);
+        for (int i = 0; i < 8; i++) {
+            spi_write_read_blocking(SD_SPI, &dummy, &dummy, 1);
+        }
+        uint8_t acmd41_buf[6] = {0x69, 0x40,0,0,0, 0xFF};
+        spi_write_blocking(SD_SPI, acmd41_buf, 6);
+        uint8_t r1;
+        for (int i = 0; i < 8; i++) {
+            spi_write_read_blocking(SD_SPI, &dummy, &r1, 1);
+            if ((r1 & 0x80) == 0) break;
+        }
+        gpio_put(13, 1);
+        if ((r1 & 0x80) == 0) {
+            shell_print("  ACMD41 OK on attempt %d, R1=0x%02x\r\n", attempt+1, r1);
+            break;
+        }
+        busy_wait_ms(10);
+    }
+    shell_print("  Init sequence done\r\n");
 }
 
 static int shell_tokenize(char *line, char **argv, int max_args) {
