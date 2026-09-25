@@ -542,63 +542,63 @@ static void init_storage(void) {
     }
 }
 
+static bool g_app_initialized = false;
+
 void app_run(void) {
-    setup_gpio();
-    init_storage();
-    draw_menu();
+    if (!g_app_initialized) {
+        setup_gpio();
+        init_storage();
+        draw_menu();
+        g_app_initialized = true;
+    }
 
     /* if SD is bad, hide the image-touching entries */
-    while (true) {
-        if (g_ui == R_MENU) {
-            if (btn_tap(BTN_A_PIN)) {
-                if (!g_sd_ok) {
-                    init_storage();
-                    if (g_sd_ok) draw_menu();
-                    else {
-                        ssd1306_clear();
-                        ssd1306_puts(1, 3, "SIN MICROSD");
-                        ssd1306_flush();
-                    }
-                } else {
-                    g_sel = (g_sel + 1) % 3;
-                    draw_menu();
+    /* Run one iteration of the UI loop */
+    if (g_ui == R_MENU) {
+        if (btn_tap(BTN_A_PIN)) {
+            if (!g_sd_ok) {
+                init_storage();
+                if (g_sd_ok) draw_menu();
+                else {
+                    ssd1306_clear();
+                    ssd1306_puts(1, 3, "SIN MICROSD");
+                    ssd1306_flush();
                 }
-            } else if (btn_tap(BTN_B_PIN)) {
-                if (!g_sd_ok) continue; /* storage must work first */
-                g_abort = false;
-                if (g_sel == 0) do_read();
-                else if (g_sel == 1) do_write();
-                else do_info();
-                if (g_ui == R_MSG) draw_message();
+            } else {
+                g_sel = (g_sel + 1) % 3;
+                draw_menu();
             }
-        } else if (g_ui == R_RUN) {
-            /* blocking loops update the screen themselves; just park here */
-            while (g_ui == R_RUN) {
-                draw_running();
-                busy_wait_ms(60);
-            }
+        } else if (btn_tap(BTN_B_PIN)) {
+            if (!g_sd_ok) return; /* storage must work first */
+            g_abort = false;
+            if (g_sel == 0) do_read();
+            else if (g_sel == 1) do_write();
+            else do_info();
+            if (g_ui == R_MSG) draw_message();
+        }
+    } else if (g_ui == R_RUN) {
+        /* Non-blocking: update progress and check for abort */
+        draw_running();
+        if (btn_abort()) {
+            g_ui = R_MSG;
             draw_message();
-        } else if (g_ui == R_SELECT) {
-            /* image slot picker: A = next, B = write selected */
-            while (g_ui == R_SELECT) {
-                if (btn_tap(BTN_A_PIN)) {
-                    g_imgsel = (g_imgsel + 1) % g_imgn;
-                    draw_selector();
-                } else if (btn_tap(BTN_B_PIN)) {
-                    g_abort = false;
-                    do_write_selected();
-                }
-                busy_wait_ms(30);
-            }
-        } else { /* R_MSG */
-            while (g_ui == R_MSG) {
-                if (btn_tap(BTN_A_PIN) || btn_tap(BTN_B_PIN)) {
-                    g_ui = R_MENU;
-                    draw_menu();
-                }
-                busy_wait_ms(40);
-            }
         }
         busy_wait_ms(20);
+    } else if (g_ui == R_SELECT) {
+        /* image slot picker: A = next, B = write selected */
+        if (btn_tap(BTN_A_PIN)) {
+            g_imgsel = (g_imgsel + 1) % g_imgn;
+            draw_selector();
+        } else if (btn_tap(BTN_B_PIN)) {
+            g_abort = false;
+            do_write_selected();
+        }
+        busy_wait_ms(30);
+    } else { /* R_MSG */
+        if (btn_tap(BTN_A_PIN) || btn_tap(BTN_B_PIN)) {
+            g_ui = R_MENU;
+            draw_menu();
+        }
+        busy_wait_ms(40);
     }
 }

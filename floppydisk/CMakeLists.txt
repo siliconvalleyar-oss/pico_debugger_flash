@@ -46,6 +46,7 @@ add_executable(floppydisk
     hfe.cpp
     mfm.cpp
     floppy.cpp
+    shell.c
 )
 
 pico_generate_pio_header(floppydisk ${CMAKE_CURRENT_LIST_DIR}/floppy.pio)
