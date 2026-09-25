@@ -101,7 +101,7 @@ target_include_directories(floppydisk_usb PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 # Embed version into binary
 target_compile_definitions(floppydisk_usb PRIVATE
     FLOPPYDISK_VERSION="${GIT_VERSION}"
-    FLOPPYDISK_BUILD="${BUILD_NUMBER}"
+    FLOPPYDISK_BUILD=${BUILD_NUMBER}
     FLOPPYDISK_COMMIT="${GIT_COMMIT}"
 )
 
