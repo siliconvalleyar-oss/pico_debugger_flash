@@ -9,6 +9,7 @@
 #include "hardware/uart.h"
 #include "hardware/watchdog.h"
 #include "hardware/gpio.h"
+#include "hardware/spi.h"
 
 #include <stdarg.h>
 #include <stdbool.h>
