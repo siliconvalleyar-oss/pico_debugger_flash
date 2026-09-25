@@ -44,13 +44,6 @@ static constexpr uint16_t fluxwrite_ref[] = {
     0x0000, /* jmp loop_flux                       */
 };
 
-(void)fluxread_program;
-(void)fluxwrite_program;
-(void)fluxread_ref;
-(void)fluxwrite_ref;
-(void)fluxread_program_instructions;
-(void)fluxwrite_program_instructions;
-
 /* ============================================================ drive GPIO ===== */
 
 static int g_track = -1;
