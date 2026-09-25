@@ -89,7 +89,7 @@ static void shell_reboot_cmd(int argc, char **argv) {
 static void shell_version_cmd(int argc, char **argv) {
     (void)argc; (void)argv;
     shell_print("floppydisk_usb %s (build %lu)\r\n", app_get_version_str(), (unsigned long)app_get_build_num());
-    shell_print("Commit: %s\r\n", FLOPPYDISK_COMMIT_STR);
+    shell_print("Commit: %s\r\n", FLOPPYDISK_COMMIT);
 }
 
 void shell_register_cmd(const char *name, void (*fn)(int argc, char **argv), const char *help) {
