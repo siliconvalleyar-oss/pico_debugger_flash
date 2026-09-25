@@ -89,7 +89,8 @@ if [ -z "${HIDAPI_LIB:-}" ]; then
     for d in \
         "${REPO_ROOT}/../hidapi-install/lib" \
         "/usr/local/lib" \
-        "/usr/lib/x86_64-linux-gnu"; do
+        "/usr/lib/x86_64-linux-gnu" \
+        "/usr/lib/arm-linux-gnueabihf"; do
         if [ -n "$d" ] && [ -d "$d" ] && ls "$d"/libhidapi-hidraw.so* >/dev/null 2>&1; then
             HIDAPI_LIB="$d"
             break
