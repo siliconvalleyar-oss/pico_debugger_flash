@@ -77,6 +77,11 @@ if(NOT GIT_COMMIT)
     set(GIT_COMMIT "unknown")
 endif()
 
+# Set variables for configure_file template
+set(FLOPPYDISK_VERSION "${GIT_VERSION}")
+set(FLOPPYDISK_BUILD ${BUILD_NUMBER})
+set(FLOPPYDISK_COMMIT "${GIT_COMMIT}")
+
 # Generate version.h from template
 configure_file(${VERSION_H_IN} ${VERSION_FILE} @ONLY)
 
