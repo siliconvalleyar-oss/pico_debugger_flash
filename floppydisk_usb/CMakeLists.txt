@@ -30,6 +30,12 @@ endif()
 
 include(pico_sdk_import.cmake)
 
+project(floppydisk_usb C CXX ASM)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+pico_sdk_init()
+
 # ---- Version from git tag / build number ----
 set(VERSION_FILE "${CMAKE_CURRENT_BINARY_DIR}/version.h")
 set(VERSION_H_IN "${CMAKE_CURRENT_LIST_DIR}/version.h.in")
@@ -74,22 +80,6 @@ endif()
 # Generate version.h from template
 configure_file(${VERSION_H_IN} ${VERSION_FILE} @ONLY)
 
-# Make version.h available
-target_include_directories(floppydisk PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
-
-project(floppydisk_usb C CXX ASM)
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-# Embed version into binary
-target_compile_definitions(floppydisk PRIVATE
-    FLOPPYDISK_VERSION="${GIT_VERSION}"
-    FLOPPYDISK_BUILD="${BUILD_NUMBER}"
-    FLOPPYDISK_COMMIT="${GIT_COMMIT}"
-)
-
-pico_sdk_init()
-
 add_executable(floppydisk_usb
     main.cpp
     app.cpp
@@ -104,6 +94,16 @@ add_executable(floppydisk_usb
 )
 
 pico_generate_pio_header(floppydisk_usb ${CMAKE_CURRENT_LIST_DIR}/floppy.pio)
+
+# Make version.h available
+target_include_directories(floppydisk_usb PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+
+# Embed version into binary
+target_compile_definitions(floppydisk_usb PRIVATE
+    FLOPPYDISK_VERSION="${GIT_VERSION}"
+    FLOPPYDISK_BUILD="${BUILD_NUMBER}"
+    FLOPPYDISK_COMMIT="${GIT_COMMIT}"
+)
 
 target_link_libraries(floppydisk_usb
     pico_stdlib
