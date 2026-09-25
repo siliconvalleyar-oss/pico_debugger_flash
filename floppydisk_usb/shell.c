@@ -2,6 +2,7 @@
 #include "shell.h"
 #include "app.h"
 #include "fat.h"
+#include "sd_spi.h"
 
 #include "pico/stdio.h"
 #include "pico/stdlib.h"
@@ -196,6 +197,38 @@ static void shell_hex_cmd(int argc, char **argv) {
     shell_print("\r\n");
 }
 
+static void shell_sdtest_cmd(int argc, char **argv) {
+    (void)argc; (void)argv;
+    shell_print("SD SPI Test...\r\n");
+    shell_print("  Pins: SCK=GP10 MOSI=GP11 MISO=GP12 CS=GP13\r\n");
+    
+    bool ok = sd_init();
+    if (!ok) {
+        shell_print("  sd_init() FALLO\r\n");
+        return;
+    }
+    shell_print("  sd_init() OK\r\n");
+    
+    uint32_t blocks = sd_card_capacity();
+    if (blocks > 0) {
+        shell_print("  Capacidad: %lu bloques = %lu MB\r\n", (unsigned long)blocks, (unsigned long)(blocks / 2048));
+    } else {
+        shell_print("  Capacidad: desconocida\r\n");
+    }
+    
+    uint8_t buf[512];
+    if (sd_read_block(0, buf)) {
+        shell_print("  Bloque 0 (MBR) leido OK:\r\n");
+        for (int i = 0; i < 64; i++) {
+            if (i % 16 == 0) shell_print("\r\n  %04x: ", i);
+            shell_print("%02x ", buf[i]);
+        }
+        shell_print("\r\n");
+    } else {
+        shell_print("  ERROR leyendo bloque 0\r\n");
+    }
+}
+
 void shell_register_cmd(const char *name, void (*fn)(int argc, char **argv), const char *help) {
     if (s_cmd_count >= SHELL_MAX_CMDS) return;
     s_cmds[s_cmd_count].name = name;
@@ -214,6 +247,7 @@ void shell_init(void) {
     shell_register_cmd("ls", shell_ls_cmd, "Listar imagenes en /IMG");
     shell_register_cmd("dump", shell_dump_cmd, "Dump bloques de imagen (base ext [block] [count])");
     shell_register_cmd("hex", shell_hex_cmd, "Hex dump imagen (base ext offset [len])");
+    shell_register_cmd("sdtest", shell_sdtest_cmd, "Test directo SD card SPI");
     shell_prompt();
 }
 

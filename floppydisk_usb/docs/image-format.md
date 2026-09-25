@@ -23,7 +23,7 @@ Este es el orden estandar de las imagenes FAT del DOS/Windows (BIOS read/write).
 
 - Fat12 de 1.44 MB: compatible (imagen raw sin cambios). Se incluye una imagen de
   prueba autentica en `docs/IBM_PC_FAT12_1_44MB/`.
-- Con herramientas como **WinImage** o **RawWrite** la extension habitual es `.img`
+- Co                                                      `.img`
   o `.ima`; el firmware las trata como raw en ambos sentidos.
 - DD de 720 KB (2DD) suele formatearse como FAT12 con 9 sectores por pista.
 
