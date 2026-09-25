@@ -8,6 +8,7 @@
 #include "config.h"
 
 static bool card_ok = false;
+static bool card_sdhc = false;  /* true=SDHC/SDXC (block addressing), false=SDSC (byte addressing) */
 
 static void cs_high(void) { gpio_put(SD_CS_PIN, 1); }
 static void cs_low(void) { gpio_put(SD_CS_PIN, 0); }
@@ -120,6 +121,7 @@ bool sd_init(void) {
     for (int i = 0; i < 4; i++) ocr[i] = xchg(0xFF);
     bool ccs = ocr[0] & 0x40; /* bit 30 */
 
+    card_sdhc = ccs;
     if (!ccs) {
         /* SDSC: set block length to 512 */
         sd_cmd(16, 512, 0);
@@ -138,13 +140,21 @@ uint32_t sd_card_capacity(void) {
     for (int i = 0; i < 16; i++) csd[i] = xchg(0xFF);
     for (int i = 0; i < 2; i++) (void)xchg(0xFF); /* CRC16 */
 
-    uint32_t c_size = ((uint32_t)(csd[6] & 0x03) << 10) | ((uint32_t)csd[7] << 2) |
-                      ((uint32_t)csd[8] >> 6);
-    uint32_t c_size_mult = ((csd[9] & 0x03) << 1) | (csd[10] >> 7);
-    uint32_t read_bl_len = csd[5] & 0x0F;
+    /* CSD v1 (SDSC) vs v2 (SDHC) detection */
+    if ((csd[0] >> 6) == 0) {
+        /* CSD v1 - SDSC */
+        uint32_t c_size = ((uint32_t)(csd[6] & 0x03) << 10) | ((uint32_t)csd[7] << 2) |
+                          ((uint32_t)csd[8] >> 6);
+        uint32_t c_size_mult = ((csd[9] & 0x03) << 1) | (csd[10] >> 7);
+        uint32_t read_bl_len = csd[5] & 0x0F;
 
-    uint32_t blocks = (c_size + 1) << (c_size_mult + 2 + read_bl_len - 9);
-    return blocks;
+        uint32_t blocks = (c_size + 1) << (c_size_mult + 2 + read_bl_len - 9);
+        return blocks;
+    } else {
+        /* CSD v2 - SDHC/SDXC */
+        uint32_t c_size = ((uint32_t)csd[7] << 16) | ((uint32_t)csd[8] << 8) | csd[9];
+        return (c_size + 1) * 1024; /* c_size in 512KB units, so *1024 = 512B blocks */
+    }
 }
 
 static bool read_data_block(uint8_t *buf) {
@@ -163,7 +173,8 @@ static bool read_data_block(uint8_t *buf) {
 bool sd_read_block(uint32_t lba, uint8_t *buf) {
     if (!card_ok) return false;
     cs_low();
-    uint8_t r = sd_cmd(17, lba, 0);
+    uint32_t addr = card_sdhc ? lba : (lba * 512); /* SDSC uses byte addressing */
+    uint8_t r = sd_cmd(17, addr, 0);
     bool ok = (r == 0x00) && read_data_block(buf);
     cs_high();
     dummy_clocks(1);
@@ -183,7 +194,8 @@ static bool write_data_block(const uint8_t *buf) {
 bool sd_write_block(uint32_t lba, const uint8_t *buf) {
     if (!card_ok) return false;
     cs_low();
-    uint8_t r = sd_cmd(24, lba, 0);
+    uint32_t addr = card_sdhc ? lba : (lba * 512); /* SDSC uses byte addressing */
+    uint8_t r = sd_cmd(24, addr, 0);
     bool ok = (r == 0x00) && write_data_block(buf);
     cs_high();
     dummy_clocks(1);
