@@ -209,12 +209,32 @@ void sd_test_read_block0(uint8_t *buf, char *output, size_t out_len) {
         return;
     }
     
-    cs_low();
-    uint8_t r = sd_cmd(17, 0, 0);
-    pos += snprintf(output + pos, out_len - pos, "CMD17=0x%02x ", r);
+    pos += snprintf(output + pos, out_len - pos, "card_sdhc=%d ", card_sdhc);
     
+    uint8_t csd[16];
+    cs_low();
+    uint8_t r = sd_cmd(9, 0, 0);  /* CMD9 read CSD */
+    pos += snprintf(output + pos, out_len - pos, "CMD9=0x%02x ", r);
     if (r == 0x00) {
-        for (int i = 0; i < 128; i++) {
+        uint8_t tok = xchg(0xFF);
+        pos += snprintf(output + pos, out_len - pos, "tok=0x%02x ", tok);
+        if (tok == 0xFE) {
+            for (int i = 0; i < 16; i++) csd[i] = xchg(0xFF);
+            pos += snprintf(output + pos, out_len - pos, "CSD[0]=0x%02x CSD[5]=0x%02x CSD[6]=0x%02x CSD[7]=0x%02x CSD[8]=0x%02x CSD[9]=0x%02x ", csd[0], csd[5], csd[6], csd[7], csd[8], csd[9]);
+            for (int i = 0; i < 2; i++) (void)xchg(0xFF);
+        }
+    }
+    cs_high();
+    dummy_clocks(1);
+    
+    /* Now try read block 0 */
+    pos += snprintf(output + pos, out_len - pos, "| ");
+    cs_low();
+    uint32_t addr = card_sdhc ? 0 : 0;  /* block 0 */
+    r = sd_cmd(17, addr, 0);
+    pos += snprintf(output + pos, out_len - pos, "CMD17=0x%02x ", r);
+    if (r == 0x00) {
+        for (int i = 0; i < 256; i++) {
             uint8_t tok = xchg(0xFF);
             if (tok == 0xFE) {
                 pos += snprintf(output + pos, out_len - pos, "token@%d ", i);
