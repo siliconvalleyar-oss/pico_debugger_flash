@@ -209,6 +209,36 @@ static void shell_sdtest_cmd(int argc, char **argv) {
     gpio_pull_up(12);
     shell_print("  MISO (GP12) idle state: %d (should be 1 with pull-up)\r\n", gpio_get(12));
     
+    /* Manual SPI test - drive CS low and check MISO */
+    gpio_init(10);
+    gpio_set_function(10, GPIO_FUNC_SPI);
+    gpio_init(11);
+    gpio_set_function(11, GPIO_FUNC_SPI);
+    gpio_init(12);
+    gpio_set_function(12, GPIO_FUNC_SPI);
+    gpio_init(13);
+    gpio_set_dir(13, GPIO_OUT);
+    gpio_put(13, 1);
+    
+    spi_init(spi1, 400000);
+    shell_print("  SPI1 initialized at 400kHz\r\n");
+    
+    /* Test with CS high - MISO should be high-Z or pulled up */
+    shell_print("  CS=HIGH, MISO=%d\r\n", gpio_get(12));
+    
+    /* Drive CS low */
+    gpio_put(13, 0);
+    busy_wait_us(10);
+    shell_print("  CS=LOW, MISO=%d\r\n", gpio_get(12));
+    
+    /* Send dummy byte and read response */
+    uint8_t dummy = 0xFF;
+    uint8_t rx;
+    spi_write_read_blocking(spi1, &dummy, &rx, 1);
+    shell_print("  SPI xchg 0xFF -> 0x%02x\r\n", rx);
+    
+    gpio_put(13, 1);
+    
     bool ok = sd_init();
     if (!ok) {
         shell_print("  sd_init() FALLO\r\n");
