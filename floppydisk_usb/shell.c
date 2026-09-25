@@ -213,20 +213,42 @@ static void shell_sdtest_cmd(int argc, char **argv) {
     if (blocks > 0) {
         shell_print("  Capacidad: %lu bloques = %lu MB\r\n", (unsigned long)blocks, (unsigned long)(blocks / 2048));
     } else {
-        shell_print("  Capacidad: desconocida\r\n");
+        shell_print("  Capacidad: desconocida (fallo CSD)\r\n");
     }
     
     uint8_t buf[512];
-    if (sd_read_block(0, buf)) {
-        shell_print("  Bloque 0 (MBR) leido OK:\r\n");
-        for (int i = 0; i < 64; i++) {
-            if (i % 16 == 0) shell_print("\r\n  %04x: ", i);
-            shell_print("%02x ", buf[i]);
+    shell_print("  Intentando leer bloque 0...\r\n");
+    cs_low();
+    uint8_t r = sd_cmd(17, 0, 0);
+    shell_print("  CMD17 response: 0x%02x\r\n", r);
+    if (r == 0x00) {
+        shell_print("  Esperando data token...\r\n");
+        for (int i = 0; i < 128; i++) {
+            uint8_t tok = xchg(0xFF);
+            shell_print("  Token %d: 0x%02x\r\n", i, tok);
+            if (tok == 0xFE) {
+                shell_print("  Data token encontrado!\r\n");
+                spi_read_blocking(SD_SPI, 0xFF, buf, 512);
+                dummy_clocks(2);
+                shell_print("  Bloque 0 (MBR) leido OK:\r\n");
+                for (int j = 0; j < 64; j++) {
+                    if (j % 16 == 0) shell_print("\r\n  %04x: ", j);
+                    shell_print("%02x ", buf[j]);
+                }
+                shell_print("\r\n");
+                cs_high();
+                dummy_clocks(1);
+                return;
+            }
+            if (tok != 0xFF) {
+                shell_print("  Token inesperado, abortando\r\n");
+                break;
+            }
         }
-        shell_print("\r\n");
-    } else {
-        shell_print("  ERROR leyendo bloque 0\r\n");
     }
+    cs_high();
+    dummy_clocks(1);
+    shell_print("  ERROR leyendo bloque 0\r\n");
 }
 
 void shell_register_cmd(const char *name, void (*fn)(int argc, char **argv), const char *help) {

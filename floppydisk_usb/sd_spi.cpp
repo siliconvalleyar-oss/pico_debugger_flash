@@ -188,3 +188,37 @@ bool sd_write_block(uint32_t lba, const uint8_t *buf) {
     dummy_clocks(1);
     return ok;
 }
+
+void sd_test_read_block0(uint8_t *buf, char *output, size_t out_len) {
+    int pos = 0;
+    if (!card_ok) {
+        snprintf(output + pos, out_len - pos, "card not ok");
+        return;
+    }
+    
+    cs_low();
+    uint8_t r = sd_cmd(17, 0, 0);
+    pos += snprintf(output + pos, out_len - pos, "CMD17=0x%02x ", r);
+    
+    if (r == 0x00) {
+        for (int i = 0; i < 128; i++) {
+            uint8_t tok = xchg(0xFF);
+            if (tok == 0xFE) {
+                pos += snprintf(output + pos, out_len - pos, "token@%d ", i);
+                spi_read_blocking(SD_SPI, 0xFF, buf, 512);
+                dummy_clocks(2);
+                cs_high();
+                dummy_clocks(1);
+                pos += snprintf(output + pos, out_len - pos, "OK");
+                return;
+            }
+            if (tok != 0xFF) {
+                pos += snprintf(output + pos, out_len - pos, "bad token 0x%02x@%d ", tok, i);
+                break;
+            }
+        }
+    }
+    cs_high();
+    dummy_clocks(1);
+    pos += snprintf(output + pos, out_len - pos, "FAIL");
+}
