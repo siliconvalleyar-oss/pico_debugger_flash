@@ -44,3 +44,12 @@ pics/umac_annotated.jpg
 pics/FDF5N5SMNGK3FFM.webp
 floppydisk/tmp/
 
+# ---- debbug_serial_floppy build artifacts ----
+debbug_serial_floppy/obj/
+debbug_serial_floppy/bin/
+debbug_serial_floppy/pico_serial_debug
+!debbug_serial_floppy/src/
+!debbug_serial_floppy/include/
+!debbug_serial_floppy/docs/
+!debbug_serial_floppy/Makefile
+
