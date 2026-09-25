@@ -19,7 +19,7 @@
 #include <cstdlib>
 
 static const char* g_version_str = FLOPPYDISK_VERSION_STR;
-static uint32_t g_build_num = FLOPPYDISK_BUILD_NUM;
+static uint32_t g_build_num = FLOPPYDISK_BUILD;
 
 const char* app_get_version_str(void) {
     return g_version_str;
