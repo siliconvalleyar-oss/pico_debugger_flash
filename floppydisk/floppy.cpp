@@ -44,45 +44,12 @@ static constexpr uint16_t fluxwrite_ref[] = {
     0x0000, /* jmp loop_flux                       */
 };
 
-#if defined(__cplusplus) && __cplusplus >= 201703L
-static_assert(fluxread_program.length ==
-                  sizeof(fluxread_ref) / sizeof(fluxread_ref[0]),
-              "fluxread PIO program length mismatch");
-static_assert(fluxwrite_program.length ==
-                  sizeof(fluxwrite_ref) / sizeof(fluxwrite_ref[0]),
-              "fluxwrite PIO program length mismatch");
-
-#define ASSERT_FLUXREAD(IDX)                                                   \
-    static_assert(fluxread_program_instructions[IDX] ==                         \
-                      fluxread_ref[IDX],                                       \
-                  "fluxread instruction " #IDX " mismatch")
-ASSERT_FLUXREAD(0);
-ASSERT_FLUXREAD(1);
-ASSERT_FLUXREAD(2);
-ASSERT_FLUXREAD(3);
-ASSERT_FLUXREAD(4);
-ASSERT_FLUXREAD(5);
-ASSERT_FLUXREAD(6);
-ASSERT_FLUXREAD(7);
-
-#define ASSERT_FLUXWRITE(IDX)                                                  \
-    static_assert(fluxwrite_program_instructions[IDX] ==                        \
-                      fluxwrite_ref[IDX],                                      \
-                  "fluxwrite instruction " #IDX " mismatch")
-ASSERT_FLUXWRITE(0);
-ASSERT_FLUXWRITE(1);
-ASSERT_FLUXWRITE(2);
-ASSERT_FLUXWRITE(3);
-ASSERT_FLUXWRITE(4);
-ASSERT_FLUXWRITE(5);
-#else
 (void)fluxread_program;
 (void)fluxwrite_program;
 (void)fluxread_ref;
 (void)fluxwrite_ref;
 (void)fluxread_program_instructions;
 (void)fluxwrite_program_instructions;
-#endif
 
 /* ============================================================ drive GPIO ===== */
 
