@@ -76,12 +76,13 @@ bool sd_init(void) {
     for (int i = 0; i < 10; i++) {
         if (sd_cmd(0, 0, crc7_cmd(0, 0)) == 0x01) break;
     }
-    if (sd_cmd(8, 0x000001AA, crc7_cmd(8, 0x000001AA)) != 0x01) {
-        cs_high();
-        return false; /* not v2 SD */
-    }
-    /* read R7: */
-    {
+
+    /* Try CMD8 (SDHC/SDXC detection) */
+    uint8_t cmd8_r = sd_cmd(8, 0x000001AA, crc7_cmd(8, 0x000001AA));
+    bool is_v2_sd = (cmd8_r == 0x01);
+    
+    if (is_v2_sd) {
+        /* read R7: */
         uint8_t r7[4];
         for (int i = 0; i < 4; i++) r7[i] = xchg(0xFF);
         if (r7[2] != 0x01 || r7[3] != 0xAA) {
@@ -91,17 +92,19 @@ bool sd_init(void) {
     }
 
     bool sdhc = false;
-    /* ACMD41 with HCS */
-    for (int i = 0; i < 1000; i++) {
-        sd_cmd(55, 0, 0);          /* CMD55, next is ACMD */
-        uint8_t r = sd_cmd(41, 0x40000000, 0); /* ACMD41 HCS=1 */
-        if (r == 0x00) {
-            sdhc = true;
-            break;
+    if (is_v2_sd) {
+        /* ACMD41 with HCS for SDHC */
+        for (int i = 0; i < 1000; i++) {
+            sd_cmd(55, 0, 0);          /* CMD55, next is ACMD */
+            uint8_t r = sd_cmd(41, 0x40000000, 0); /* ACMD41 HCS=1 */
+            if (r == 0x00) {
+                sdhc = true;
+                break;
+            }
+            busy_wait_us(500);
         }
-        busy_wait_us(500);
     }
-    /* try again without HCS (SDSC) */
+    /* try without HCS (SDSC) - works for both v2 SDSC and v1 cards */
     if (!sdhc) {
         for (int i = 0; i < 1000; i++) {
             sd_cmd(55, 0, 0);
