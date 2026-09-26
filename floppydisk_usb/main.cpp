@@ -1,9 +1,15 @@
 #include "app.h"
 #include "shell.h"
 #include "pico/stdlib.h"
+#include "pico/cyw43_arch.h"
 #include "ssd1306.h"
 
 int main(void) {
+    /* Initialize CYW43 (WiFi/BLE chip) first - required for USB on Pico W */
+    if (cyw43_arch_init()) {
+        // CYW43 init failed, but continue anyway
+    }
+    
     stdio_init_all();
     
     /* Quick LED blink to show we're alive (only on regular Pico, not Pico W) */

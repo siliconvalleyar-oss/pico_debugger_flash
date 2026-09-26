@@ -123,10 +123,13 @@ target_compile_definitions(floppydisk_usb PRIVATE
 
 pico_enable_stdio_uart(floppydisk_usb 1)
 
-# Link minimal libraries - include pico_cyw43_arch_none for Pico W USB support
-# (USB phy is on CYW43 chip, so we need the driver without lwIP)
+# Link with pico_stdlib for pico/stdlib.h, and pico_stdio_usb for USB CDC
+# pico_stdlib includes pico_standard_link which pulls in tinyusb
+# We need to ensure tinyusb is built as a static library
 target_link_libraries(floppydisk_usb PRIVATE
-    pico_sync
+    pico_stdlib
+    pico_stdio_usb
+    pico_cyw43_arch_none
     hardware_i2c
     hardware_spi
     hardware_pio
@@ -142,10 +145,7 @@ target_link_libraries(floppydisk_usb PRIVATE
     pico_printf
     pico_time
     pico_util
-    pico_cyw43_arch_none
     hardware_watchdog
-    pico_stdlib
-    pico_standard_link
 )
 
 pico_add_extra_outputs(floppydisk_usb)
