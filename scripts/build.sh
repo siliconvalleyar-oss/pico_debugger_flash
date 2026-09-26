@@ -19,6 +19,9 @@ echo "Project dir : ${PROJECT_DIR}"
 echo "CMake target: ${PROJECT_CMAKE_TARGET:-${PROJECT}}"
 echo "Board       : ${BOARD:-pico_w}"
 
+# Ensure we have the latest code before building
+cd "${REPO_ROOT}" && git pull --ff-only
+
 mkdir -p "${BUILD_DIR}"
 
 # config.sh define BUILD_DIR=${PROJECT_DIR}/build; usa ninja si disponible.
