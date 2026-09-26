@@ -341,8 +341,9 @@ static bool fdir_open(fat_vfs_t *fs, uint32_t first_cluster, fdir_t *d) {
 static bool fdir_read_block(fdir_t *d, uint32_t idx, uint8_t *buf) {
     if (idx >= d->blocks) return false;
     if (d->root16) {
-return blk_read(d->fs, d->fs->root_begin + idx, buf);
+        return blk_read(d->fs, d->fs->root_begin + idx, buf);
     }
+    uint32_t cl = d->chain[idx / d->fs->spc];
     return blk_read(d->fs, cluster_lba(d->fs, cl) + (idx % d->fs->spc), buf);
 }
 

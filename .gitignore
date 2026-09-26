@@ -52,4 +52,4 @@ debbug_serial_floppy/pico_serial_debug
 !debbug_serial_floppy/include/
 !debbug_serial_floppy/docs/
 !debbug_serial_floppy/Makefile
-
+tmp/

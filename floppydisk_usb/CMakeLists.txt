@@ -108,18 +108,58 @@ target_compile_definitions(floppydisk_usb PRIVATE
     FLOPPYDISK_VERSION="${GIT_VERSION}"
     FLOPPYDISK_BUILD=${BUILD_NUMBER}
     FLOPPYDISK_COMMIT="${GIT_COMMIT}"
+
+    # USB device descriptors
+    USBD_VID=0xCAFE
+    USBD_PID=0x0004
+    USBD_MANUFACTURER="Raspberry Pico inc"
+    USBD_PRODUCT="Floppy disk USB"
 )
 
+# Link minimal libraries, avoid pico_runtime/pico_stdio which pull in pico_cyw43_arch
+# Use only the bare minimum libraries we actually need
 target_link_libraries(floppydisk_usb
-    pico_stdlib
+    pico_runtime
+    pico_sync
     hardware_i2c
     hardware_spi
     hardware_pio
     hardware_dma
-    pico_cyw43_arch
+    hardware_gpio
+    hardware_uart
+    hardware_timer
+    hardware_irq
+    hardware_claim
+    hardware_watchdog
+    hardware_flash
+    pico_malloc
+    pico_printf
+    pico_time
+    pico_util
+    tinyusb
+    hardware_watchdog
 )
 
+# Remove pico_stdio and pico_stdio_usb which pull in pico_cyw43_arch
+if(TARGET pico_stdio)
+    target_link_libraries(floppydisk_usb PRIVATE -lpico_stdio)
+endif()
+if(TARGET pico_stdio_usb)
+    target_link_libraries(floppydisk_usb PRIVATE -lpico_stdio_usb)
+endif()
+if(TARGET pico_cyw43_arch)
+    target_link_libraries(floppydisk_usb PRIVATE -lpico_cyw43_arch)
+endif()
+
+# Also use set_target_properties to remove from LINK_LIBRARIES
+get_target_property(LIBS floppydisk_usb LINK_LIBRARIES)
+if(LIBS)
+    string(REPLACE "pico_stdio_usb" "" NEW_LIBS "${LIBS}")
+    string(REPLACE "pico_cyw43_arch" "" NEW_LIBS "${NEW_LIBS}")
+    string(REPLACE "pico_stdio" "" NEW_LIBS "${NEW_LIBS}")
+    set_target_properties(floppydisk_usb PROPERTIES LINK_LIBRARIES "${NEW_LIBS}")
+endif()
+
 pico_enable_stdio_uart(floppydisk_usb 1)
-pico_enable_stdio_usb(floppydisk_usb 1)
 
 pico_add_extra_outputs(floppydisk_usb)
