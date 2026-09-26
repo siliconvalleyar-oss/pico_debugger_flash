@@ -25,8 +25,11 @@ if(NOT EXISTS "${PICO_SDK_PATH}/pico_sdk_init.cmake")
 endif()
 
 if(NOT PICO_BOARD)
-    set(PICO_BOARD pico)
+    set(PICO_BOARD pico_w)
 endif()
+
+# Disable CYW43 (WiFi) support completely to avoid lwIP dependency
+set(PICO_CYW43_SUPPORTED 0)
 
 include(pico_sdk_import.cmake)
 
@@ -116,10 +119,11 @@ target_compile_definitions(floppydisk_usb PRIVATE
     USBD_PRODUCT="Floppy disk USB"
 )
 
-# Link minimal libraries, avoid pico_runtime/pico_stdio which pull in pico_cyw43_arch
+pico_enable_stdio_uart(floppydisk_usb 1)
+
+# Link minimal libraries - avoid pico_runtime/pico_stdio which pull in pico_cyw43_arch
 # Use only the bare minimum libraries we actually need
-target_link_libraries(floppydisk_usb
-    pico_runtime
+target_link_libraries(floppydisk_usb PRIVATE
     pico_sync
     hardware_i2c
     hardware_spi
@@ -136,30 +140,9 @@ target_link_libraries(floppydisk_usb
     pico_printf
     pico_time
     pico_util
-    tinyusb
     hardware_watchdog
+    pico_stdlib
+    pico_standard_link
 )
-
-# Remove pico_stdio and pico_stdio_usb which pull in pico_cyw43_arch
-if(TARGET pico_stdio)
-    target_link_libraries(floppydisk_usb PRIVATE -lpico_stdio)
-endif()
-if(TARGET pico_stdio_usb)
-    target_link_libraries(floppydisk_usb PRIVATE -lpico_stdio_usb)
-endif()
-if(TARGET pico_cyw43_arch)
-    target_link_libraries(floppydisk_usb PRIVATE -lpico_cyw43_arch)
-endif()
-
-# Also use set_target_properties to remove from LINK_LIBRARIES
-get_target_property(LIBS floppydisk_usb LINK_LIBRARIES)
-if(LIBS)
-    string(REPLACE "pico_stdio_usb" "" NEW_LIBS "${LIBS}")
-    string(REPLACE "pico_cyw43_arch" "" NEW_LIBS "${NEW_LIBS}")
-    string(REPLACE "pico_stdio" "" NEW_LIBS "${NEW_LIBS}")
-    set_target_properties(floppydisk_usb PROPERTIES LINK_LIBRARIES "${NEW_LIBS}")
-endif()
-
-pico_enable_stdio_uart(floppydisk_usb 1)
 
 pico_add_extra_outputs(floppydisk_usb)
