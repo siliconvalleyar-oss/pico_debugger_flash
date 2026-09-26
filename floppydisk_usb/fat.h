@@ -24,13 +24,15 @@ typedef struct {
     uint32_t root_entries; /* FAT16 root entries                  */
     uint32_t fat_size;     /* sectors per FAT                     */
     uint32_t total_sectors;
-    uint32_t fat_begin;    /* LBA of first FAT                    */
+    uint32_t fat_begin;    /* LBA of first FAT (relative to partition) */
     uint32_t root_begin;   /* FAT16: LBA of root                  */
     uint32_t root_cluster; /* FAT32: first cluster of root        */
     uint32_t data_begin;   /* LBA of cluster 2                    */
     uint32_t clusters;     /* total clusters on volume            */
     uint32_t next_free;    /* cluster-allocation hint             */
     int type;              /* 16 or 32                            */
+    uint32_t partition_start;  /* LBA of partition start (0 = superfloppy) */
+    uint32_t partition_sectors; /* partition size in sectors */
 } fat_vfs_t;
 
 typedef struct {

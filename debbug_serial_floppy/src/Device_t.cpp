@@ -151,9 +151,15 @@ std::vector<std::string> Device_t::sendCommand(const std::string& cmd,
     // Enviar comando con CR+LF
     writePort(cmd + "\r\n");
 
+    // Wait a bit for echo to arrive and be processed
+    usleep(100000);  // 100ms
+
+    // Flush any echoed characters
+    flushPort();
+    readLine(500);  // Discard first line (echo)
+
     auto start = std::chrono::steady_clock::now();
     std::string line;
-    bool first_line = true;
 
     while (true) {
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -164,11 +170,6 @@ std::vector<std::string> Device_t::sendCommand(const std::string& cmd,
         line = readLine(remaining);
 
         if (!line.empty()) {
-            // Skip first line (command echo from firmware)
-            if (first_line) {
-                first_line = false;
-                continue;
-            }
             // Check for prompt - stop when found, don't include in output
             if (line.find(effective_prompt) != std::string::npos) {
                 break;

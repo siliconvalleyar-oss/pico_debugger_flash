@@ -55,8 +55,9 @@ static void blk_invalidate(void) {
     g_blk_age = 0;
 }
 
-static bool blk_write(uint32_t lba, const uint8_t *buf) {
-    if (!sd_write_block(lba, buf)) return false;
+static bool blk_write(fat_vfs_t *fs, uint32_t lba, const uint8_t *buf) {
+    uint32_t abs_lba = lba + fs->partition_start;
+    if (!sd_write_block(abs_lba, buf)) return false;
     for (int i = 0; i < BLK_CACHE_SLOTS; i++) {
         if (g_blk[i].valid && g_blk[i].lba == lba) {
             memcpy(g_blk[i].data, buf, 512);
@@ -67,7 +68,7 @@ static bool blk_write(uint32_t lba, const uint8_t *buf) {
     return true;
 }
 
-static bool blk_read(uint32_t lba, uint8_t *buf) {
+static bool blk_read(fat_vfs_t *fs, uint32_t lba, uint8_t *buf) {
     for (int i = 0; i < BLK_CACHE_SLOTS; i++) {
         if (g_blk[i].valid && g_blk[i].lba == lba) {
             memcpy(buf, g_blk[i].data, 512);
@@ -75,7 +76,8 @@ static bool blk_read(uint32_t lba, uint8_t *buf) {
             return true;
         }
     }
-    if (!sd_read_block(lba, buf)) return false;
+    uint32_t abs_lba = lba + fs->partition_start;
+    if (!sd_read_block(abs_lba, buf)) return false;
     int lru = 0;
     for (int i = 1; i < BLK_CACHE_SLOTS; i++) {
         if (g_blk[i].age < g_blk[lru].age) lru = i;
@@ -95,7 +97,7 @@ static bool fat_cache_dirty = false;
 
 static void fat_flush(fat_vfs_t *fs) {
     if (fat_cache_dirty && fat_cache_sector != 0xFFFFFFFFu) {
-        blk_write(fat_cache_sector, fat_cache);
+        blk_write(fs, fat_cache_sector, fat_cache);
         fat_cache_dirty = false;
     }
 }
@@ -103,7 +105,7 @@ static void fat_flush(fat_vfs_t *fs) {
 static void fat_load_sector(fat_vfs_t *fs, uint32_t sector) {
     if (sector == fat_cache_sector) return;
     fat_flush(fs);
-    blk_read(sector, fat_cache);
+    blk_read(fs, sector, fat_cache);
     fat_cache_sector = sector;
 }
 
@@ -128,15 +130,24 @@ static void fat_set(fat_vfs_t *fs, uint32_t entry, uint32_t value) {
     fat_cache_dirty = true;
 }
 
-bool fat_mount(fat_vfs_t *fs) {
-    memset(fs, 0, sizeof(*fs));
-    fs->next_free = 0;
-    fat_cache_sector = 0xFFFFFFFFu;
-    fat_cache_dirty = false;
-    blk_invalidate();
+/* MBR partition types for FAT */
+#define MBR_FAT12       0x01
+#define MBR_FAT16_SMALL 0x04  /* FAT16 < 32MB */
+#define MBR_EXTENDED    0x05
+#define MBR_FAT16       0x06  /* FAT16 >= 32MB */
+#define MBR_NTFS        0x07
+#define MBR_FAT32_CHS   0x0B  /* FAT32 CHS */
+#define MBR_FAT32_LBA   0x0C  /* FAT32 LBA */
+#define MBR_FAT16_LBA   0x0E  /* FAT16 LBA */
+#define MBR_EXTENDED_LBA 0x0F
 
-    uint8_t bpb[512];
-    if (!blk_read(0, bpb)) return false;
+static bool is_fat_partition(uint8_t type) {
+    return type == MBR_FAT12 || type == MBR_FAT16_SMALL || type == MBR_FAT16 ||
+           type == MBR_FAT16_LBA || type == MBR_FAT32_CHS || type == MBR_FAT32_LBA;
+}
+
+/* Read BPB from sector, verify signature, parse FAT params */
+static bool parse_bpb(fat_vfs_t *fs, uint32_t sector, const uint8_t *bpb) {
     if (bpb[510] != 0x55 || bpb[511] != 0xAA) return false;
 
     uint32_t bps = le16(bpb + 11);
@@ -177,6 +188,62 @@ bool fat_mount(fat_vfs_t *fs) {
     fs->clusters = (fs->total_sectors - fs->data_begin) / spc;
     fs->next_free = 2;
     return true;
+}
+
+static bool raw_read(uint32_t lba, uint8_t *buf) {
+    return sd_read_block(lba, buf);
+}
+
+bool fat_mount(fat_vfs_t *fs) {
+    memset(fs, 0, sizeof(*fs));
+    fs->next_free = 0;
+    fat_cache_sector = 0xFFFFFFFFu;
+    fat_cache_dirty = false;
+    blk_invalidate();
+
+    uint8_t buf[512];
+
+    /* Try sector 0 first (superfloppy / no MBR) */
+    if (raw_read(0, buf)) {
+        if (buf[510] == 0x55 && buf[511] == 0xAA) {
+            /* Check if it's a valid BPB (not MBR) */
+            uint32_t bps = le16(buf + 11);
+            uint8_t spc = buf[13];
+            uint32_t rsvd = le16(buf + 14);
+            uint8_t nfats = buf[16];
+            if (bps == 512 && spc != 0 && nfats != 0) {
+                /* Looks like a valid BPB, not MBR */
+                if (parse_bpb(fs, 0, buf)) return true;
+            }
+        }
+    }
+
+    /* Sector 0 might be MBR - check partition table at offset 0x1BE */
+    if (raw_read(0, buf)) {
+        if (buf[510] == 0x55 && buf[511] == 0xAA) {
+            /* MBR signature present, check partition entries at 0x1BE */
+            for (int i = 0; i < 4; i++) {
+                uint8_t *p = buf + 0x1BE + i * 16;
+                uint8_t status = p[0];
+                uint8_t type = p[4];
+                uint32_t start_lba = le32(p + 8);
+                uint32_t num_sectors = le32(p + 12);
+
+                if (is_fat_partition(type) && start_lba != 0 && num_sectors != 0) {
+                    /* Found FAT partition, read its BPB */
+                    if (raw_read(start_lba, buf)) {
+                        if (parse_bpb(fs, start_lba, buf)) {
+                            fs->partition_start = start_lba;
+                            fs->partition_sectors = num_sectors;
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return false;
 }
 
 uint32_t fat_get_free_clusters(fat_vfs_t *fs) {
@@ -274,10 +341,9 @@ static bool fdir_open(fat_vfs_t *fs, uint32_t first_cluster, fdir_t *d) {
 static bool fdir_read_block(fdir_t *d, uint32_t idx, uint8_t *buf) {
     if (idx >= d->blocks) return false;
     if (d->root16) {
-        return blk_read(d->fs->root_begin + idx, buf);
+return blk_read(d->fs, d->fs->root_begin + idx, buf);
     }
-    uint32_t cl = d->chain[idx / d->fs->spc];
-    return blk_read(cluster_lba(d->fs, cl) + (idx % d->fs->spc), buf);
+    return blk_read(d->fs, cluster_lba(d->fs, cl) + (idx % d->fs->spc), buf);
 }
 
 static bool fdir_grow(fdir_t *d) {
@@ -288,7 +354,7 @@ static bool fdir_grow(fdir_t *d) {
     /* zero the freshly allocated cluster so directory scans stop cleanly */
     static const uint8_t zero[512] = {0};
     for (uint32_t s = 0; s < d->fs->spc; s++) {
-        blk_write(cluster_lba(d->fs, c) + s, zero);
+        blk_write(d->fs, cluster_lba(d->fs, c) + s, zero);
     }
     fat_set(d->fs, last, c);
     fat_set(d->fs, c, d->fs->type == 32 ? FAT_EOC32 : FAT_EOC16);
@@ -368,7 +434,7 @@ bool fat_ensure_img_dir(fat_vfs_t *fs) {
     /* zero the whole directory cluster, then write "." and ".." */
     static const uint8_t zero[512] = {0};
     for (uint32_t s = 0; s < fs->spc; s++) {
-        blk_write(cluster_lba(fs, cl) + s, zero);
+        blk_write(fs, cluster_lba(fs, cl) + s, zero);
     }
     uint8_t b[512];
     memset(b, 0, sizeof(b));
@@ -383,12 +449,12 @@ bool fat_ensure_img_dir(fat_vfs_t *fs) {
     b[43] = FAT_ATTR_DIR;
     b[58] = 0;
     b[59] = 0;
-    blk_write(cluster_lba(fs, cl), b);
+    blk_write(fs, cluster_lba(fs, cl), b);
 
     /* write the IMG dir entry in root */
     {
         uint8_t e[512];
-        blk_read(loc.sector, e);
+        blk_read(fs, loc.sector, e);
         memset(e + loc.offset, 0, 32);
         make_83(IMG_DIR_NAME, NULL, e + loc.offset);
         e[loc.offset + 11] = FAT_ATTR_DIR;
@@ -398,7 +464,7 @@ bool fat_ensure_img_dir(fat_vfs_t *fs) {
             e[loc.offset + 20] = (uint8_t)(cl >> 16);
             e[loc.offset + 21] = (uint8_t)(cl >> 24);
         }
-        blk_write(loc.sector, e);
+blk_write(fs, loc.sector, e);
     }
     return true;
 }
@@ -415,7 +481,7 @@ static bool fdir_open_img(fat_vfs_t *fs, fdir_t *d) {
     if (!dent_find(&root, img_name, &loc)) return false;
 
     uint8_t e[512];
-    blk_read(loc.sector, e);
+    blk_read(fs, loc.sector, e);
     uint32_t cl = le16(e + loc.offset + 26);
     if (fs->type == 32) cl |= (uint32_t)le16(e + loc.offset + 20) << 16;
     return fdir_open(fs, cl, d);
@@ -491,7 +557,7 @@ bool fat_open_img(fat_vfs_t *fs, const char *base8, const char *ext3,
     if (!dent_find(&img, name11, &loc)) return false;
 
     uint8_t e[512];
-    blk_read(loc.sector, e);
+    blk_read(fs, loc.sector, e);
     f->dir_sector = loc.sector;
     f->dir_offset = loc.offset;
     memcpy(f->dir_name, e + loc.offset, 8);
@@ -521,7 +587,7 @@ bool fat_open_root(fat_vfs_t *fs, const char *base8, const char *ext3,
     if (!dent_find(&root, name11, &loc)) return false;
 
     uint8_t e[512];
-    blk_read(loc.sector, e);
+    blk_read(fs, loc.sector, e);
     f->dir_sector = loc.sector;
     f->dir_offset = loc.offset;
     memcpy(f->dir_name, e + loc.offset, 8);
@@ -576,7 +642,7 @@ bool fat_create_img(fat_vfs_t *fs, const char *base8, const char *ext3,
 
     /* write directory entry */
     uint8_t e[512];
-    blk_read(loc.sector, e);
+    blk_read(fs, loc.sector, e);
     memset(e + loc.offset, 0, 32);
     make_83(base8, ext3, e + loc.offset);
     e[loc.offset + 11] = FAT_ATTR_ARCHIVE;
@@ -589,7 +655,7 @@ bool fat_create_img(fat_vfs_t *fs, const char *base8, const char *ext3,
     put_le16(e + loc.offset + 26, (uint16_t)(g_chain[0] & 0xFFFF));
     if (fs->type == 32) put_le16(e + loc.offset + 20, (uint16_t)(g_chain[0] >> 16));
     put_le32(e + loc.offset + 28, 0);
-    blk_write(loc.sector, e);
+    blk_write(fs, loc.sector, e);
 
     f->cur_cluster = g_chain[0];
     return true;
@@ -597,13 +663,13 @@ bool fat_create_img(fat_vfs_t *fs, const char *base8, const char *ext3,
 
 bool fat_finalize(fat_file_t *f) {
     uint8_t e[512];
-    if (!blk_read(f->dir_sector, e)) return false;
+    if (!blk_read(f->fs, f->dir_sector, e)) return false;
     put_le32(e + f->dir_offset + 28, f->size);
     if (f->fs->type == 32) {
         put_le16(e + f->dir_offset + 20, (uint16_t)(f->first_cluster >> 16));
     }
     put_le16(e + f->dir_offset + 26, (uint16_t)(f->first_cluster & 0xFFFF));
-    if (!blk_write(f->dir_sector, e)) {
+    if (!blk_write(f->fs, f->dir_sector, e)) {
         fat_flush(f->fs);
         return false;
     }
@@ -638,12 +704,12 @@ bool fat_read_block(fat_file_t *f, uint32_t idx, uint8_t *buf) {
     uint32_t cluster_idx = idx / f->fs->spc;
     uint32_t cl;
     if (!file_cluster_at(f, cluster_idx, &cl)) return false;
-    return blk_read(cluster_lba(f->fs, cl) + (idx % f->fs->spc), buf);
+    return blk_read(f->fs, cluster_lba(f->fs, cl) + (idx % f->fs->spc), buf);
 }
 
 bool fat_write_block(fat_file_t *f, uint32_t idx, const uint8_t *buf) {
     uint32_t cluster_idx = idx / f->fs->spc;
     uint32_t cl;
     if (!file_cluster_at(f, cluster_idx, &cl)) return false;
-    return blk_write(cluster_lba(f->fs, cl) + (idx % f->fs->spc), buf);
+    return blk_write(f->fs, cluster_lba(f->fs, cl) + (idx % f->fs->spc), buf);
 }

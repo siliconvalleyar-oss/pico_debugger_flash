@@ -14,6 +14,7 @@
  */
 
 #include <string.h>
+#include <cstdio>
 #include "sd_spi.h"
 #include "shell.h"
 #include "pico/stdlib.h"
