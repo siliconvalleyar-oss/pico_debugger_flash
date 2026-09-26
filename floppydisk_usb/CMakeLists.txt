@@ -28,8 +28,10 @@ if(NOT PICO_BOARD)
     set(PICO_BOARD pico_w)
 endif()
 
-# Disable CYW43 (WiFi) support completely to avoid lwIP dependency
-set(PICO_CYW43_SUPPORTED 0)
+# Enable CYW43 support for Pico W USB (USB phy is on CYW43 chip)
+# pico_cyw43_arch_lwip provides CYW43 driver with lwIP for network stack
+# For USB-only, we need the cyw43 driver but can use the "none" arch variant
+set(PICO_CYW43_SUPPORTED 1)
 
 include(pico_sdk_import.cmake)
 
@@ -121,8 +123,8 @@ target_compile_definitions(floppydisk_usb PRIVATE
 
 pico_enable_stdio_uart(floppydisk_usb 1)
 
-# Link minimal libraries - avoid pico_runtime/pico_stdio which pull in pico_cyw43_arch
-# Use only the bare minimum libraries we actually need
+# Link minimal libraries - include pico_cyw43_arch_none for Pico W USB support
+# (USB phy is on CYW43 chip, so we need the driver without lwIP)
 target_link_libraries(floppydisk_usb PRIVATE
     pico_sync
     hardware_i2c
@@ -140,6 +142,7 @@ target_link_libraries(floppydisk_usb PRIVATE
     pico_printf
     pico_time
     pico_util
+    pico_cyw43_arch_none
     hardware_watchdog
     pico_stdlib
     pico_standard_link
