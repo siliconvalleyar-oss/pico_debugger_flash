@@ -116,6 +116,7 @@ target_link_libraries(floppydisk_usb
     hardware_spi
     hardware_pio
     hardware_dma
+    pico_cyw43_arch
 )
 
 pico_enable_stdio_uart(floppydisk_usb 1)
