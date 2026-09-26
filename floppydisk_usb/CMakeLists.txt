@@ -121,7 +121,7 @@ target_compile_definitions(floppydisk_usb PRIVATE
     USBD_PRODUCT="Floppy disk USB"
 )
 
-pico_enable_stdio_uart(floppydisk_usb 1)
+pico_enable_stdio_usb(floppydisk_usb 1)
 
 # Link with pico_stdlib for pico/stdlib.h, and pico_stdio_usb for USB CDC
 # pico_stdlib includes pico_standard_link which pulls in tinyusb
