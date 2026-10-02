@@ -6,9 +6,13 @@
 #include "lwip/snmp.h"
 #include "lwip/stats.h"
 #include "lwip/prot/ethernet.h"
+#include "lwip/pbuf.h"
+#include "lwip/timeouts.h"
 #include "tusb.h"
+#include "class/net/net_device.h"
 #include "pico/time.h"
 #include <string.h>
+#include <stdlib.h>
 
 static usb_netif_t *g_usb_netif = NULL;
 
@@ -46,19 +50,9 @@ err_t usb_netif_linkoutput(struct netif *netif, struct pbuf *p) {
         return ERR_MEM;
     }
 
-    uint8_t *buf = malloc(total_len);
-    if (!buf) {
-        return ERR_MEM;
+    if (tud_network_can_xmit(total_len)) {
+        tud_network_xmit(p, total_len);
     }
-
-    uint8_t *ptr = buf;
-    for (q = p; q != NULL; q = q->next) {
-        memcpy(ptr, q->payload, q->len);
-        ptr += q->len;
-    }
-
-    tud_network_xfer(buf, total_len, true);
-    free(buf);
 
     LINK_STATS_INC(link.xmit);
     return ERR_OK;
@@ -99,19 +93,6 @@ void usb_netif_poll(usb_netif_t *usb_netif) {
         usb_netif_set_link_up(usb_netif, true);
     }
 
-    uint8_t *buf;
-    uint16_t len;
-    while (tud_network_recv(&buf, &len)) {
-        struct pbuf *p = pbuf_alloc(PBUF_RAW, len, PBUF_POOL);
-        if (p) {
-            pbuf_take(p, buf, len);
-            if (usb_netif->netif.input(p, &usb_netif->netif) != ERR_OK) {
-                pbuf_free(p);
-            }
-        }
-        tud_network_recv_renew();
-    }
-
     uint32_t now = to_ms_since_boot(get_absolute_time());
     if (now - usb_netif->last_poll >= LWIP_TIMER_INTERVAL_MS) {
         usb_netif->last_poll = now;
@@ -140,11 +121,41 @@ void tud_network_init_cb(void) {
     }
 }
 
-bool tud_network_recv_cb(const uint8_t *src, uint16_t size) {
-    return true;
+uint16_t tud_network_xmit_cb(uint8_t *dst, void *ref, uint16_t arg) {
+    struct pbuf *p = (struct pbuf *)ref;
+    uint16_t total_len = arg;
+    uint16_t copied = 0;
+
+    if (!p || !dst) {
+        return 0;
+    }
+
+    for (struct pbuf *q = p; q != NULL; q = q->next) {
+        uint16_t to_copy = q->len;
+        if (copied + to_copy > total_len) {
+            to_copy = total_len - copied;
+        }
+        memcpy(dst + copied, q->payload, to_copy);
+        copied += to_copy;
+        if (copied >= total_len) break;
+    }
+
+    pbuf_free(p);
+    return copied;
 }
 
-bool tud_network_xfer_cb(uint8_t *dst, uint16_t size) {
+bool tud_network_recv_cb(const uint8_t *src, uint16_t size) {
+    if (!g_usb_netif || !g_usb_netif->link_up) {
+        return false;
+    }
+
+    struct pbuf *p = pbuf_alloc(PBUF_RAW, size, PBUF_POOL);
+    if (p) {
+        pbuf_take(p, src, size);
+        if (g_usb_netif->netif.input(p, &g_usb_netif->netif) != ERR_OK) {
+            pbuf_free(p);
+        }
+    }
     return true;
 }
 

@@ -4,7 +4,7 @@
 #include "pico/multicore.h"
 #include "pico/time.h"
 #include "hardware/watchdog.h"
-#include "hardware/gpio.h"
+#include "pico/cyw43_arch.h"
 #include "tusb.h"
 #include "lwip/init.h"
 #include "lwip/ip4_addr.h"
@@ -29,6 +29,87 @@ static char ip_str[16] = "0.0.0.0";
 static uint32_t last_status_update = 0;
 static uint32_t last_led_blink = 0;
 static bool led_state = false;
+
+uint8_t tud_network_mac_address[6] = USB_RNDIS_MAC;
+
+static void led_set(bool on) {
+#if LED_ON_CYW43
+    cyw43_arch_gpio_put(LED_PIN, on);
+#else
+    gpio_put(LED_PIN, on);
+#endif
+}
+
+const uint8_t * __attribute__((used)) tud_descriptor_device_cb(void) {
+    static const tusb_desc_device_t desc_device = {
+        .bLength            = sizeof(tusb_desc_device_t),
+        .bDescriptorType    = TUSB_DESC_DEVICE,
+        .bcdUSB             = 0x0200,
+        .bDeviceClass       = TUSB_CLASS_MISC,
+        .bDeviceSubClass    = MISC_SUBCLASS_COMMON,
+        .bDeviceProtocol    = MISC_PROTOCOL_IAD,
+        .bMaxPacketSize0    = CFG_TUD_ENDPOINT0_SIZE,
+        .idVendor           = USB_VENDOR_ID,
+        .idProduct          = USB_PRODUCT_ID,
+        .bcdDevice          = USB_DEVICE_VERSION,
+        .iManufacturer      = 0x01,
+        .iProduct           = 0x02,
+        .iSerialNumber      = 0x03,
+        .bNumConfigurations = 0x01
+    };
+    return (const uint8_t *)&desc_device;
+}
+
+const uint8_t * __attribute__((used)) tud_descriptor_configuration_cb(uint8_t index) {
+    (void)index;
+    static const uint8_t desc_cfg[] = {
+        0x09, 0x02, 0x00, 0x00, 0x02, 0x01, 0x00, 0x80, 0x32,
+        0x08, 0x0B, 0x00, 0x02, 0x02, 0x06, 0x00, 0x00,
+        0x09, 0x04, 0x00, 0x00, 0x01, 0x02, 0x02, 0x00, 0x00,
+        0x05, 0x24, 0x00, 0x10, 0x01,
+        0x05, 0x24, 0x06, 0x00, 0x01,
+        0x0D, 0x24, 0x0F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x07, 0x05, 0x82, 0x03, 0x08, 0x00, 0x0A,
+        0x09, 0x04, 0x01, 0x00, 0x02, 0x0A, 0x00, 0x00, 0x00,
+        0x07, 0x05, 0x01, 0x02, 0x40, 0x00, 0x00,
+        0x07, 0x05, 0x81, 0x02, 0x40, 0x00, 0x00
+    };
+    return desc_cfg;
+}
+
+const uint16_t * __attribute__((used)) tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
+    (void)langid;
+    static uint16_t desc_str[32];
+    uint8_t len = 0;
+    const char *str = NULL;
+
+    switch (index) {
+        case 0x00:
+            desc_str[1] = 0x0409;
+            len = 1;
+            break;
+        case 0x01:
+            str = "Raspberry Pi";
+            break;
+        case 0x02:
+            str = "Pico WiFi Dongle";
+            break;
+        case 0x03:
+            str = "0001";
+            break;
+        default:
+            return NULL;
+    }
+
+    if (str) {
+        for (len = 0; str[len]; len++) {
+            desc_str[1 + len] = str[len];
+        }
+    }
+
+    desc_str[0] = (TUSB_DESC_STRING << 8) | (2 * len + 2);
+    return desc_str;
+}
 
 void core1_entry(void) {
     while (true) {
@@ -60,7 +141,7 @@ void core1_entry(void) {
         if (now - last_led_blink >= (usb_connected ? LED_BLINK_CONNECTED_MS : LED_BLINK_DISCONNECTED_MS)) {
             last_led_blink = now;
             led_state = !led_state;
-            gpio_put(LED_PIN, led_state);
+            led_set(led_state);
         }
 
         if (watchdog_caused_reboot()) {
@@ -73,9 +154,12 @@ void core1_entry(void) {
 int main(void) {
     stdio_init_all();
 
+#if LED_ON_CYW43
+#else
     gpio_init(LED_PIN);
     gpio_set_dir(LED_PIN, GPIO_OUT);
     gpio_put(LED_PIN, 0);
+#endif
 
     if (watchdog_caused_reboot()) {
         printf("Rebooted by watchdog!\n");
@@ -88,7 +172,6 @@ int main(void) {
     ssd1306_init(&display);
     ssd1306_show_status(&display, false, false, 0, "Iniciando...");
 
-    ip4_addr_t usb_mac_addr, ap_mac_addr;
     uint8_t usb_mac[6] = USB_RNDIS_MAC;
     uint8_t ap_mac[6] = WIFI_AP_MAC;
 
@@ -128,23 +211,11 @@ int main(void) {
     printf("USB: RNDIS/CDC-ECM, WiFi AP: %s\n", WIFI_SSID);
 
     while (true) {
-        struct pbuf *p;
-
-        if (usb_connected && wifi_ap_active) {
-            p = pbuf_alloc(PBUF_RAW, 0, PBUF_POOL);
-        }
-
-        if (usb_netif.link_up && wifi_ap.ap_active) {
-            if (usb_netif.netif.flags & NETIF_FLAG_LINK_UP) {
-                p = pbuf_alloc(PBUF_RAW, 0, PBUF_POOL);
-            }
-        }
-
         uint32_t now = to_ms_since_boot(get_absolute_time());
         if (now - last_led_blink >= (usb_connected ? LED_BLINK_CONNECTED_MS : LED_BLINK_DISCONNECTED_MS)) {
             last_led_blink = now;
             led_state = !led_state;
-            gpio_put(LED_PIN, led_state);
+            led_set(led_state);
         }
 
         watchdog_update();

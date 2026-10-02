@@ -4,8 +4,8 @@
 #define WIFI_SSID                       "PicoDongle"
 #define WIFI_PASSWORD                   "pico1234"
 #define WIFI_CHANNEL                    6
-#define WIFI_AUTH                       CYW43_AUTH_WPA2_AES_PSK
-#define WIFI_COUNTRY                    CYW43_COUNTRY_WORLDWIDE
+#define WIFI_AUTH                       2
+#define WIFI_COUNTRY                    0xFF
 
 #define AP_IP_ADDR                      "192.168.4.1"
 #define AP_NETMASK                      "255.255.255.0"
@@ -36,7 +36,8 @@
 
 #define DEBUG_LEVEL                     1
 
-#define LED_PIN                         PICO_DEFAULT_LED_PIN
+#define LED_PIN                         0
+#define LED_ON_CYW43                    1
 #define LED_BLINK_CONNECTED_MS          1000
 #define LED_BLINK_DISCONNECTED_MS       200
 #define LED_BLINK_ERROR_MS              50

@@ -1,8 +1,10 @@
 #include "ssd1306.h"
+#include "config.h"
 #include "pico/stdlib.h"
 #include "hardware/i2c.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 static const uint8_t font_5x7[] = {
     0x00, 0x00, 0x00, 0x00, 0x00,
@@ -76,12 +78,12 @@ static const uint8_t font_5x7[] = {
     0x00, 0x07, 0x00, 0x07, 0x00,
 };
 
-static void ssd1306_write_cmd(ssd1306_t *display, uint8_t cmd) {
+static void ssd1306_write_cmd(ssd1306_t *display __attribute__((unused)), uint8_t cmd) {
     uint8_t buf[2] = {0x00, cmd};
     i2c_write_blocking(SSD1306_I2C_INSTANCE, SSD1306_I2C_ADDR, buf, 2, false);
 }
 
-static void ssd1306_write_data(ssd1306_t *display, uint8_t *data, size_t len) {
+static void ssd1306_write_data(ssd1306_t *display __attribute__((unused)), uint8_t *data, size_t len) {
     uint8_t *buf = malloc(len + 1);
     buf[0] = 0x40;
     memcpy(buf + 1, data, len);

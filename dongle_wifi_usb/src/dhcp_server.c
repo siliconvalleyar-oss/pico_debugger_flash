@@ -10,7 +10,6 @@
 
 #define DHCP_SERVER_PORT                  67
 #define DHCP_CLIENT_PORT                  68
-#define DHCP_MAGIC_COOKIE                 0x63825363
 
 #define DHCP_OP_REQUEST                   1
 #define DHCP_OP_REPLY                     2
@@ -72,15 +71,6 @@ static dhcp_lease_t *find_lease_by_mac(uint8_t *mac) {
     return NULL;
 }
 
-static dhcp_lease_t *find_lease_by_ip(ip4_addr_t *ip) {
-    for (int i = 0; i < DHCP_MAX_LEASES; i++) {
-        if (leases[i].in_use && ip4_addr_cmp(&leases[i].ip, ip)) {
-            return &leases[i];
-        }
-    }
-    return NULL;
-}
-
 static dhcp_lease_t *allocate_lease(uint8_t *mac) {
     uint32_t now = to_ms_since_boot(get_absolute_time()) / 1000;
 
@@ -124,7 +114,7 @@ static void dhcp_send_response(struct dhcp_msg *msg, uint8_t msg_type,
     ip4_addr_set_zero(&resp->siaddr);
     ip4_addr_set_zero(&resp->giaddr);
     memcpy(resp->chaddr, client_mac, 6);
-    resp->magic_cookie = lwip_htonl(DHCP_MAGIC_COOKIE);
+    resp->cookie = lwip_htonl(DHCP_MAGIC_COOKIE);
 
     uint8_t *opt = resp->options;
     *opt++ = DHCP_OPTION_MESSAGE_TYPE;
@@ -171,6 +161,11 @@ static void dhcp_send_response(struct dhcp_msg *msg, uint8_t msg_type,
 
 static void dhcp_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p,
                       const ip_addr_t *addr, u16_t port) {
+    (void)arg;
+    (void)pcb;
+    (void)addr;
+    (void)port;
+
     if (p->len < sizeof(struct dhcp_msg)) {
         pbuf_free(p);
         return;
@@ -178,7 +173,7 @@ static void dhcp_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p,
 
     struct dhcp_msg *msg = (struct dhcp_msg *)p->payload;
 
-    if (msg->magic_cookie != lwip_htonl(DHCP_MAGIC_COOKIE)) {
+    if (msg->cookie != lwip_htonl(DHCP_MAGIC_COOKIE)) {
         pbuf_free(p);
         return;
     }
@@ -196,6 +191,7 @@ static void dhcp_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p,
 
     ip4_addr_t client_ip;
     ip4_addr_set_zero(&client_ip);
+    uint8_t client_mac[6];
     memcpy(client_mac, msg->chaddr, 6);
 
     dhcp_lease_t *lease = find_lease_by_mac(client_mac);

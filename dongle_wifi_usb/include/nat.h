@@ -6,6 +6,7 @@
 #include "lwip/prot/tcp.h"
 #include "lwip/prot/udp.h"
 #include "lwip/pbuf.h"
+#include "config.h"
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -42,10 +43,10 @@ typedef struct {
 
 void nat_init(ip4_addr_t *usb_ip, ip4_addr_t *ap_ip);
 void nat_tick(void);
-bool nat_translate_outbound(struct pbuf *p, struct netif *in_if, struct netif *out_if);
-bool nat_translate_inbound(struct pbuf *p, struct netif *in_if, struct netif *out_if);
+bool nat_translate_outbound(struct pbuf *p);
+bool nat_translate_inbound(struct pbuf *p);
 void nat_cleanup_expired(void);
-uint16_t nat_get_mapped_port(uint8_t protocol);
+uint16_t nat_get_mapped_port(uint8_t protocol __attribute__((unused)));
 void nat_dump_table(void);
 
 #endif

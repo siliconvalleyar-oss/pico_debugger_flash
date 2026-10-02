@@ -18,7 +18,7 @@ cmake -DPICO_BOARD=pico_w \
       -DCMAKE_BUILD_TYPE=Release \
       "${PROJECT_DIR}"
 
-make -j$(nproc)
+cmake --build . -j$(nproc)
 
 echo ""
 echo "=== Build complete ==="

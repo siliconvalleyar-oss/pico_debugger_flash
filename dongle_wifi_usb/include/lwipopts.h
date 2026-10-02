@@ -4,7 +4,7 @@
 #define NO_SYS                          1
 #define LWIP_SOCKET                     0
 #define LWIP_NETCONN                    0
-#define LWIP_NETIF_API                  1
+#define LWIP_NETIF_API                  0
 #define LWIP_NETIF_STATUS_CALLBACK      1
 #define LWIP_NETIF_LINK_CALLBACK        1
 #define LWIP_NETIF_HOSTNAME             1
@@ -70,11 +70,11 @@
 
 #define ETH_PAD_SIZE                    2
 #define ETHARP_SUPPORT_VLAN             0
-#define LWIP_HOOK_FILENAME              "lwip_hooks.h"
 
-#define LWIP_RAND                        pico_get_random
 
-#define LWIP_HOOK_IP4_ROUTE_SRC(dest, src) ip4_route_src_hook(dest, src)
+#define LWIP_RAND                        get_rand_32
+
+
 
 #define LWIP_DHCP_SERVER                1
 #define LWIP_DHCP_SERVER_BOOTP          0

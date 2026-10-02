@@ -1,13 +1,12 @@
 #include "nat.h"
 #include "config.h"
 #include "lwip/ip4.h"
-#include "lwip/ip4_frag.h"
+#include "lwip/ip4_addr.h"
 #include "lwip/inet_chksum.h"
-#include "lwip/prot/ip4.h"
 #include "lwip/prot/tcp.h"
 #include "lwip/prot/udp.h"
 #include "lwip/prot/icmp.h"
-#include "lwip/etharp.h"
+#include "lwip/pbuf.h"
 #include "pico/time.h"
 #include <string.h>
 
@@ -15,30 +14,35 @@ static nat_table_t nat_table;
 
 static uint16_t ip4_chksum_pseudo_partial(struct pbuf *p, uint8_t proto,
                                          uint16_t proto_len, uint32_t src, uint32_t dst) {
-    return inet_chksum_pseudo_partial(p, proto, proto_len, src, dst);
+    (void)p; (void)proto; (void)proto_len; (void)src; (void)dst;
+    return 0;
 }
 
-static void update_ip4_checksum(struct ip4_hdr *iphdr) {
-    iphdr->_chksum = 0;
-    iphdr->_chksum = inet_chksum(iphdr, IP4_HLEN);
+static void update_ip4_checksum(void *iphdr) {
+    uint16_t *hdr = (uint16_t *)iphdr;
+    uint32_t sum = 0;
+    for (int i = 0; i < 10; i++) {
+        sum += lwip_ntohs(hdr[i]);
+    }
+    sum = (sum & 0xFFFF) + (sum >> 16);
+    sum = (sum & 0xFFFF) + (sum >> 16);
+    hdr[10] = lwip_htons(~sum & 0xFFFF);
 }
 
-static void update_tcp_checksum(struct pbuf *p, struct ip4_hdr *iphdr,
-                                const ip4_addr_t *old_src, const ip4_addr_t *new_src,
-                                const ip4_addr_t *old_dst, const ip4_addr_t *new_dst) {
-    struct tcp_hdr *tcphdr = (struct tcp_hdr *)((uint8_t *)iphdr + IP4_HLEN);
-    uint16_t tcplen = lwip_ntohs(iphdr->_len) - IP4_HLEN;
+static void update_tcp_checksum(struct pbuf *p, void *iphdr,
+                                uint32_t new_src, uint32_t new_dst) {
+    uint8_t *ip = (uint8_t *)iphdr;
+    struct tcp_hdr *tcphdr = (struct tcp_hdr *)(ip + 20);
+    uint16_t tcplen = lwip_ntohs(*(uint16_t *)(ip + 2)) - 20;
 
     tcphdr->chksum = 0;
-    tcphdr->chksum = ip4_chksum_pseudo_partial(p, IP_PROTO_TCP, tcplen,
-                                               ip4_addr_get_u32(new_src),
-                                               ip4_addr_get_u32(new_dst));
+    tcphdr->chksum = ip4_chksum_pseudo_partial(p, NAT_PROTO_TCP, tcplen, new_src, new_dst);
 }
 
-static void update_udp_checksum(struct pbuf *p, struct ip4_hdr *iphdr,
-                                const ip4_addr_t *old_src, const ip4_addr_t *new_src,
-                                const ip4_addr_t *old_dst, const ip4_addr_t *new_dst) {
-    struct udp_hdr *udphdr = (struct udp_hdr *)((uint8_t *)iphdr + IP4_HLEN);
+static void update_udp_checksum(struct pbuf *p, void *iphdr,
+                                uint32_t new_src, uint32_t new_dst) {
+    uint8_t *ip = (uint8_t *)iphdr;
+    struct udp_hdr *udphdr = (struct udp_hdr *)(ip + 20);
     uint16_t udplen = lwip_ntohs(udphdr->len);
 
     if (udphdr->chksum == 0) {
@@ -46,21 +50,17 @@ static void update_udp_checksum(struct pbuf *p, struct ip4_hdr *iphdr,
     }
 
     udphdr->chksum = 0;
-    udphdr->chksum = ip4_chksum_pseudo_partial(p, IP_PROTO_UDP, udplen,
-                                               ip4_addr_get_u32(new_src),
-                                               ip4_addr_get_u32(new_dst));
+    udphdr->chksum = ip4_chksum_pseudo_partial(p, NAT_PROTO_UDP, udplen, new_src, new_dst);
 }
 
-static void update_icmp_checksum(struct pbuf *p, struct ip4_hdr *iphdr,
-                                 const ip4_addr_t *old_src, const ip4_addr_t *new_src,
-                                 const ip4_addr_t *old_dst, const ip4_addr_t *new_dst) {
-    struct icmp_echo_hdr *icmphdr = (struct icmp_echo_hdr *)((uint8_t *)iphdr + IP4_HLEN);
-    uint16_t icmplen = lwip_ntohs(iphdr->_len) - IP4_HLEN;
+static void update_icmp_checksum(struct pbuf *p, void *iphdr,
+                                 uint32_t new_src, uint32_t new_dst) {
+    uint8_t *ip = (uint8_t *)iphdr;
+    struct icmp_echo_hdr *icmphdr = (struct icmp_echo_hdr *)(ip + 20);
+    uint16_t icmplen = lwip_ntohs(*(uint16_t *)(ip + 2)) - 20;
 
     icmphdr->chksum = 0;
-    icmphdr->chksum = ip4_chksum_pseudo_partial(p, IP_PROTO_ICMP, icmplen,
-                                               ip4_addr_get_u32(new_src),
-                                               ip4_addr_get_u32(new_dst));
+    icmphdr->chksum = ip4_chksum_pseudo_partial(p, NAT_PROTO_ICMP, icmplen, new_src, new_dst);
 }
 
 void nat_init(ip4_addr_t *usb_ip, ip4_addr_t *ap_ip) {
@@ -130,7 +130,7 @@ static nat_entry_t *nat_find_entry(ip4_addr_t *src_ip, ip4_addr_t *dst_ip,
     return NULL;
 }
 
-uint16_t nat_get_mapped_port(uint8_t protocol) {
+uint16_t nat_get_mapped_port(uint8_t protocol __attribute__((unused))) {
     uint16_t port = nat_table.next_port++;
     if (nat_table.next_port >= 65535) {
         nat_table.next_port = 1024;
@@ -138,29 +138,29 @@ uint16_t nat_get_mapped_port(uint8_t protocol) {
     return port;
 }
 
-bool nat_translate_outbound(struct pbuf *p, struct netif *in_if, struct netif *out_if) {
-    if (p->len < sizeof(struct ip4_hdr)) {
+bool nat_translate_outbound(struct pbuf *p) {
+    if (p->len < 20) {
         return false;
     }
 
-    struct ip4_hdr *iphdr = (struct ip4_hdr *)p->payload;
-    uint8_t proto = IPH_PROTO(iphdr);
+    uint8_t *iphdr = (uint8_t *)p->payload;
+    uint8_t proto = iphdr[9];
 
-    if (proto != IP_PROTO_TCP && proto != IP_PROTO_UDP && proto != IP_PROTO_ICMP) {
+    if (proto != NAT_PROTO_TCP && proto != NAT_PROTO_UDP && proto != NAT_PROTO_ICMP) {
         return false;
     }
 
     ip4_addr_t src_ip, dst_ip;
-    ip4_addr_copy(src_ip, iphdr->src);
-    ip4_addr_copy(dst_ip, iphdr->dest);
+    ip4_addr_set_u32(&src_ip, *(uint32_t *)(iphdr + 12));
+    ip4_addr_set_u32(&dst_ip, *(uint32_t *)(iphdr + 16));
 
     uint16_t src_port = 0, dst_port = 0;
 
-    if (proto == IP_PROTO_TCP || proto == IP_PROTO_UDP) {
-        if (p->len < IP4_HLEN + 4) {
+    if (proto == NAT_PROTO_TCP || proto == NAT_PROTO_UDP) {
+        if (p->len < 24) {
             return false;
         }
-        uint16_t *ports = (uint16_t *)((uint8_t *)iphdr + IP4_HLEN);
+        uint16_t *ports = (uint16_t *)(iphdr + 20);
         src_port = lwip_ntohs(ports[0]);
         dst_port = lwip_ntohs(ports[1]);
     }
@@ -183,50 +183,52 @@ bool nat_translate_outbound(struct pbuf *p, struct netif *in_if, struct netif *o
 
     entry->last_seen = to_ms_since_boot(get_absolute_time());
 
-    ip4_addr_t old_src = src_ip;
-    ip4_addr_copy(iphdr->src, nat_table.usb_ip);
+    *(uint32_t *)(iphdr + 12) = ip4_addr_get_u32(&nat_table.usb_ip);
 
-    if (proto == IP_PROTO_TCP || proto == IP_PROTO_UDP) {
-        uint16_t *ports = (uint16_t *)((uint8_t *)iphdr + IP4_HLEN);
+    if (proto == NAT_PROTO_TCP || proto == NAT_PROTO_UDP) {
+        uint16_t *ports = (uint16_t *)(iphdr + 20);
         ports[0] = lwip_htons(entry->mapped_port);
     }
 
     update_ip4_checksum(iphdr);
 
-    if (proto == IP_PROTO_TCP) {
-        update_tcp_checksum(p, iphdr, &old_src, &iphdr->src, &dst_ip, &iphdr->dest);
-    } else if (proto == IP_PROTO_UDP) {
-        update_udp_checksum(p, iphdr, &old_src, &iphdr->src, &dst_ip, &iphdr->dest);
-    } else if (proto == IP_PROTO_ICMP) {
-        update_icmp_checksum(p, iphdr, &old_src, &iphdr->src, &dst_ip, &iphdr->dest);
+    uint32_t new_src = ip4_addr_get_u32(&nat_table.usb_ip);
+    uint32_t new_dst = ip4_addr_get_u32(&dst_ip);
+
+    if (proto == NAT_PROTO_TCP) {
+        update_tcp_checksum(p, iphdr, new_src, new_dst);
+    } else if (proto == NAT_PROTO_UDP) {
+        update_udp_checksum(p, iphdr, new_src, new_dst);
+    } else if (proto == NAT_PROTO_ICMP) {
+        update_icmp_checksum(p, iphdr, new_src, new_dst);
     }
 
     return true;
 }
 
-bool nat_translate_inbound(struct pbuf *p, struct netif *in_if, struct netif *out_if) {
-    if (p->len < sizeof(struct ip4_hdr)) {
+bool nat_translate_inbound(struct pbuf *p) {
+    if (p->len < 20) {
         return false;
     }
 
-    struct ip4_hdr *iphdr = (struct ip4_hdr *)p->payload;
-    uint8_t proto = IPH_PROTO(iphdr);
+    uint8_t *iphdr = (uint8_t *)p->payload;
+    uint8_t proto = iphdr[9];
 
-    if (proto != IP_PROTO_TCP && proto != IP_PROTO_UDP && proto != IP_PROTO_ICMP) {
+    if (proto != NAT_PROTO_TCP && proto != NAT_PROTO_UDP && proto != NAT_PROTO_ICMP) {
         return false;
     }
 
     ip4_addr_t src_ip, dst_ip;
-    ip4_addr_copy(src_ip, iphdr->src);
-    ip4_addr_copy(dst_ip, iphdr->dest);
+    ip4_addr_set_u32(&src_ip, *(uint32_t *)(iphdr + 12));
+    ip4_addr_set_u32(&dst_ip, *(uint32_t *)(iphdr + 16));
 
     uint16_t src_port = 0, dst_port = 0;
 
-    if (proto == IP_PROTO_TCP || proto == IP_PROTO_UDP) {
-        if (p->len < IP4_HLEN + 4) {
+    if (proto == NAT_PROTO_TCP || proto == NAT_PROTO_UDP) {
+        if (p->len < 24) {
             return false;
         }
-        uint16_t *ports = (uint16_t *)((uint8_t *)iphdr + IP4_HLEN);
+        uint16_t *ports = (uint16_t *)(iphdr + 20);
         src_port = lwip_ntohs(ports[0]);
         dst_port = lwip_ntohs(ports[1]);
     }
@@ -240,22 +242,24 @@ bool nat_translate_inbound(struct pbuf *p, struct netif *in_if, struct netif *ou
 
     entry->last_seen = to_ms_since_boot(get_absolute_time());
 
-    ip4_addr_t old_dst = dst_ip;
-    ip4_addr_copy(iphdr->dest, entry->src_ip);
+    *(uint32_t *)(iphdr + 16) = ip4_addr_get_u32(&entry->src_ip);
 
-    if (proto == IP_PROTO_TCP || proto == IP_PROTO_UDP) {
-        uint16_t *ports = (uint16_t *)((uint8_t *)iphdr + IP4_HLEN);
+    if (proto == NAT_PROTO_TCP || proto == NAT_PROTO_UDP) {
+        uint16_t *ports = (uint16_t *)(iphdr + 20);
         ports[1] = lwip_htons(entry->src_port);
     }
 
     update_ip4_checksum(iphdr);
 
-    if (proto == IP_PROTO_TCP) {
-        update_tcp_checksum(p, iphdr, &iphdr->src, &iphdr->src, &old_dst, &iphdr->dest);
-    } else if (proto == IP_PROTO_UDP) {
-        update_udp_checksum(p, iphdr, &iphdr->src, &iphdr->src, &old_dst, &iphdr->dest);
-    } else if (proto == IP_PROTO_ICMP) {
-        update_icmp_checksum(p, iphdr, &iphdr->src, &iphdr->src, &old_dst, &iphdr->dest);
+    uint32_t new_src = ip4_addr_get_u32(&src_ip);
+    uint32_t new_dst = ip4_addr_get_u32(&entry->src_ip);
+
+    if (proto == NAT_PROTO_TCP) {
+        update_tcp_checksum(p, iphdr, new_src, new_dst);
+    } else if (proto == NAT_PROTO_UDP) {
+        update_udp_checksum(p, iphdr, new_src, new_dst);
+    } else if (proto == NAT_PROTO_ICMP) {
+        update_icmp_checksum(p, iphdr, new_src, new_dst);
     }
 
     return true;
