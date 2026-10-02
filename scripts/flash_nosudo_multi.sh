@@ -101,8 +101,32 @@ fi
 
 PROJECT="$(basename "${PROJECT_DIR}")"
 BUILD_DIR="${PROJECT_DIR}/build"
-ELF_FILE="${BUILD_DIR}/${PROJECT}.elf"
-UF2_FILE="${BUILD_DIR}/${PROJECT}.uf2"
+# El CMake target puede diferir del nombre de la carpeta (keyboard_oled ->
+# pico_keyboard_bridge, pico-ble-keyboard-bridge -> pico_ble_keyboard_bridge).
+# Se infiere SIEMPRE del CMakeLists.txt del proyecto seleccionado (el valor
+# heredado de config.sh corresponde al PROJECT default, no a esta carpeta).
+# Los grep van con '|| true' porque con set -euo pipefail un grep sin matches
+# (exit 1) mata el script en silencio (p. ej. keyboard_oled declara el target
+# en src/CMakeLists.txt, no en la raíz).
+PROJECT_CMAKE_TARGET="$(grep -m1 -oE '^[[:space:]]*add_executable\([A-Za-z0-9_-]+' "${PROJECT_DIR}/CMakeLists.txt" \
+    2>/dev/null | grep -oE '[A-Za-z0-9_-]+$' || true)"
+if [ -z "${PROJECT_CMAKE_TARGET}" ]; then
+    # El proyecto declara el target en un CMakeLists de subdirectorio
+    # (keyboard_oled lo hace en src/, vía add_subdirectory)
+    PROJECT_CMAKE_TARGET="$(grep -m1 -oE '^[[:space:]]*add_executable\([A-Za-z0-9_-]+' "${PROJECT_DIR}/src/CMakeLists.txt" \
+        2>/dev/null | grep -oE '[A-Za-z0-9_-]+$' || true)"
+fi
+[ -n "${PROJECT_CMAKE_TARGET}" ] || PROJECT_CMAKE_TARGET="${PROJECT}"
+# El layout de salida depende del proyecto: keyboard_oled escribe en build/src/
+# (add_subdirectory(src)); pico-ble-keyboard-bridge escribe en build/ (CMakeLists raíz).
+# Tras un build limpio se comprueba cuál existe realmente.
+if [ -f "${BUILD_DIR}/src/${PROJECT_CMAKE_TARGET}.elf" ]; then
+    ELF_DIR="${BUILD_DIR}/src"
+else
+    ELF_DIR="${BUILD_DIR}"
+fi
+ELF_FILE="${ELF_DIR}/${PROJECT_CMAKE_TARGET}.elf"
+UF2_FILE="${ELF_DIR}/${PROJECT_CMAKE_TARGET}.uf2"
 
 export PROJECT PROJECT_DIR BUILD_DIR ELF_FILE UF2_FILE BOARD
 
@@ -134,8 +158,16 @@ echo "############################################################"
 "${SCRIPT_DIR}/build.sh"
 
 if [ ! -f "${ELF_FILE}" ]; then
-    echo "Error: Build failed - ${ELF_FILE} no encontrado" >&2
-    exit 1
+    # Red de seguridad: buscar el ELF del target en cualquier layout de build
+    # (el proyecto puede emitir en build/, build/src/, build/<subdir>/, ...)
+    FOUND_ELF="$(find "${BUILD_DIR}" -name "${PROJECT_CMAKE_TARGET}.elf" -print -quit 2>/dev/null || true)"
+    if [ -n "${FOUND_ELF}" ]; then
+        ELF_FILE="${FOUND_ELF}"
+        UF2_FILE="${ELF_FILE%.elf}.uf2"
+    else
+        echo "Error: Build failed - ${PROJECT_CMAKE_TARGET}.elf no encontrado en ${BUILD_DIR}" >&2
+        exit 1
+    fi
 fi
 
 # ---------------------------------------------------------------------------

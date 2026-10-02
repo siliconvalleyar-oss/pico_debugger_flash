@@ -15,14 +15,30 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
 
 # Directorios clave del proyecto.
-# Se elige el firmware con PROJECT: PROJECT=blink (default) u PROJECT=oled_ssd1306.
-PROJECT="${PROJECT:-blink}"
-PROJECT_DIR="${PROJECT_DIR:-${REPO_ROOT}/${PROJECT}}"
+# Se elige el firmware con PROJECT (default: floppydisk_usb).
+PROJECT="${PROJECT:-floppydisk_usb}"
+# El caso especial de target SOLO aplica cuando PROJECT=keyboard_oled, para
+# no filtrar el target de keyboard_oled a los demás proyectos
+# (p. ej. pico-ble-keyboard-bridge usa su propio target pico_ble_keyboard_bridge).
+if [ "${PROJECT}" = "keyboard_oled" ] && [ -d "${REPO_ROOT}/keyboard_oled" ]; then
+    PROJECT_DIR="${PROJECT_DIR:-${REPO_ROOT}/keyboard_oled}"
+    PROJECT_CMAKE_TARGET="pico_keyboard_bridge"
+elif [ "${PROJECT}" = "floppydisk_usb" ] && [ -d "${REPO_ROOT}/floppydisk_usb" ]; then
+    PROJECT_DIR="${PROJECT_DIR:-${REPO_ROOT}/floppydisk_usb}"
+    PROJECT_CMAKE_TARGET="floppydisk_usb"
+else
+    PROJECT_DIR="${PROJECT_DIR:-${REPO_ROOT}/${PROJECT}}"
+    PROJECT_CMAKE_TARGET="${PROJECT}"
+fi
 BUILD_DIR="${BUILD_DIR:-${PROJECT_DIR}/build}"
-ELF_FILE="${ELF_FILE:-${BUILD_DIR}/${PROJECT}.elf}"
-UF2_FILE="${UF2_FILE:-${BUILD_DIR}/${PROJECT}.uf2}"
+# Los binarios quedan en build/src/ porque el CMake del proyecto hace add_subdirectory(src).
+ELF_FILE="${ELF_FILE:-${BUILD_DIR}/src/${PROJECT_CMAKE_TARGET}.elf}"
+UF2_FILE="${UF2_FILE:-${BUILD_DIR}/src/${PROJECT_CMAKE_TARGET}.uf2}"
 
-# Configuraciones de OpenOCD incluidas en el repo
+# Configuraciones de OpenOCD incluidas en el repo.
+# El rescue usa el modo nativo de target/rp2040.cfg (set RESCUE 1, leccion
+# 8.6 de docs/SKILL.md): cuando imprime "Now restart OpenOCD without RESCUE
+# flag", reprogramar con CONFIG_FILE normal.
 CONFIG_FILE="${CONFIG_FILE:-${REPO_ROOT}/debugprobe-openocd.cfg}"
 CONFIG_RESCUE_FILE="${CONFIG_RESCUE_FILE:-${REPO_ROOT}/debugprobe-openocd-rescue.cfg}"
 
@@ -70,7 +86,8 @@ if [ -z "${HIDAPI_LIB:-}" ]; then
     for d in \
         "${REPO_ROOT}/../hidapi-install/lib" \
         "/usr/local/lib" \
-        "/usr/lib/x86_64-linux-gnu"; do
+        "/usr/lib/x86_64-linux-gnu" \
+        "/usr/lib/arm-linux-gnueabihf"; do
         if [ -n "$d" ] && [ -d "$d" ] && ls "$d"/libhidapi-hidraw.so* >/dev/null 2>&1; then
             HIDAPI_LIB="$d"
             break

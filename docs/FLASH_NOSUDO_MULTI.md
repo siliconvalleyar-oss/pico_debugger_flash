@@ -133,7 +133,7 @@ Salida esperada al final de la grabación:
 | `flash_nosudo.sh` | No | No (`PROJECT` fijo) | No |
 | `flash_simple.sh` | Sí | No | No |
 | `build_and_program.sh` | Sí | No (`PROJECT` fijo) | No |
-| `flash_rescue.sh` | Sí | No | No |
+| `flash_rescue.sh` | No | No (fase 2 delega en `flash_nosudo_multi.sh`: menú/ruta) | Sí (vía `flash_nosudo_multi.sh`) |
 
 El valor por defecto de otros scripts sale de `config.sh` (`PROJECT=blink`).
 Este script **ignora `PROJECT`** y usa siempre la ruta indicada en el menú/argumento.
