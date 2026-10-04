@@ -22,16 +22,12 @@ echo "Board       : ${BOARD:-pico_w}"
 # Ensure we have the latest code before building
 cd "${REPO_ROOT}" && git pull --ff-only
 
+# Clean build directory to avoid generator mismatch (Ninja vs Makefiles)
+rm -rf "${BUILD_DIR}"
 mkdir -p "${BUILD_DIR}"
 
-# config.sh define BUILD_DIR=${PROJECT_DIR}/build; usa ninja si disponible.
-if command -v ninja >/dev/null 2>&1; then
-    GENERATOR="-G Ninja"
-else
-    GENERATOR=""
-fi
-
-cmake -S "${PROJECT_DIR}" -B "${BUILD_DIR}" ${GENERATOR} \
+# Use default generator (Unix Makefiles) for consistency
+cmake -S "${PROJECT_DIR}" -B "${BUILD_DIR}" \
     -DPICO_SDK_PATH="${PICO_SDK_PATH:-${PICO_SDK_PATH-}}" \
     -DPICO_BOARD="${BOARD:-pico_w}" \
     ${TOOLCHAIN_DEFS:-}
