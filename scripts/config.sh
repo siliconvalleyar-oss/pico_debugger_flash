@@ -15,20 +15,28 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
 
 # Directorios clave del proyecto.
-# Se elige el firmware con PROJECT (default: pico_usb_drive_configurable).
-# En esta rama (pendrive_config_oled) la carpeta del proyecto es
-# usb_oled_drive_configurable, pero el target CMake sigue siendo
-# pico_usb_drive_configurable (project() en su CMakeLists.txt).
-PROJECT="${PROJECT:-pico_usb_drive_configurable}"
-if [ -d "${REPO_ROOT}/usb_oled_drive_configurable" ]; then
-    PROJECT_DIR="${PROJECT_DIR:-${REPO_ROOT}/usb_oled_drive_configurable}"
-else
-    PROJECT_DIR="${PROJECT_DIR:-${REPO_ROOT}/${PROJECT}}"
-fi
+# Se elige el firmware con PROJECT (default: blink_locked_oled).
+PROJECT="${PROJECT:-blink_locked_oled}"
+PROJECT_DIR="${PROJECT_DIR:-${REPO_ROOT}/${PROJECT}}"
 BUILD_DIR="${BUILD_DIR:-${PROJECT_DIR}/build}"
-# Los binarios quedan en build/src/ porque el CMake del proyecto hace add_subdirectory(src).
-ELF_FILE="${ELF_FILE:-${BUILD_DIR}/src/${PROJECT}.elf}"
-UF2_FILE="${UF2_FILE:-${BUILD_DIR}/src/${PROJECT}.uf2}"
+
+# Detectar CMake target del proyecto
+if [ -z "${PROJECT_CMAKE_TARGET:-}" ]; then
+    if [ -f "${PROJECT_DIR}/CMakeLists.txt" ]; then
+        PROJECT_CMAKE_TARGET=$(grep -m1 -oE '^[[:space:]]*add_executable\([A-Za-z0-9_-]+' "${PROJECT_DIR}/CMakeLists.txt" 2>/dev/null | grep -oE '[A-Za-z0-9_-]+$' || echo "${PROJECT}")
+    else
+        PROJECT_CMAKE_TARGET="${PROJECT}"
+    fi
+fi
+
+# Detectar directorio de salida (build/ o build/src/)
+if [ -f "${BUILD_DIR}/src/${PROJECT_CMAKE_TARGET}.elf" ]; then
+    ELF_DIR="${BUILD_DIR}/src"
+else
+    ELF_DIR="${BUILD_DIR}"
+fi
+ELF_FILE="${ELF_FILE:-${ELF_DIR}/${PROJECT_CMAKE_TARGET}.elf}"
+UF2_FILE="${UF2_FILE:-${ELF_DIR}/${PROJECT_CMAKE_TARGET}.uf2}"
 
 # Configuraciones de OpenOCD incluidas en el repo
 CONFIG_FILE="${CONFIG_FILE:-${REPO_ROOT}/debugprobe-openocd.cfg}"
