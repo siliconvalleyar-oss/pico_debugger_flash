@@ -19,9 +19,16 @@ fi
 
 "${SCRIPT_DIR}/build.sh"
 
+# Buscar ELF si no está en la ruta esperada (puede estar en build/ o build/src/)
 if [ ! -f "${ELF_FILE}" ]; then
-    echo "Error: Build failed - ${ELF_FILE} not found"
-    exit 1
+    FOUND_ELF=$(find "${BUILD_DIR}" -name "${PROJECT_CMAKE_TARGET}.elf" -print -quit 2>/dev/null || true)
+    if [ -n "${FOUND_ELF}" ]; then
+        ELF_FILE="${FOUND_ELF}"
+        UF2_FILE="${ELF_FILE%.elf}.uf2"
+    else
+        echo "Error: Build failed - ${PROJECT_CMAKE_TARGET}.elf not found in ${BUILD_DIR}"
+        exit 1
+    fi
 fi
 
 echo ""
