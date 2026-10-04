@@ -19,7 +19,12 @@ fi
 mkdir -p "${BUILD_DIR}"
 cd "${BUILD_DIR}"
 
-cmake -DPICO_BOARD="${BOARD}" -DPICO_SDK_PATH="${PICO_SDK_PATH}" "${PROJECT_DIR}"
+CMAKE_ARGS="-DPICO_BOARD=${BOARD} -DPICO_SDK_PATH=${PICO_SDK_PATH}"
+if [ -n "${EXPECTED_BOARD_ID:-}" ]; then
+    CMAKE_ARGS="${CMAKE_ARGS} -DEXPECTED_BOARD_ID=${EXPECTED_BOARD_ID}"
+fi
+
+cmake ${CMAKE_ARGS} "${PROJECT_DIR}"
 make -j"$(nproc)"
 
 echo ""
